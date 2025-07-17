@@ -1,0 +1,240 @@
+---
+alwaysApply: true
+description: Guidelines for using shadcn-svelte components in SvelteKit Accelerator
+---
+
+# shadcn-svelte Component Guidelines
+
+This project uses [shadcn-svelte](https://www.shadcn-svelte.com/) as the primary UI component library. Follow these guidelines when working with UI components.
+
+## Component Structure
+
+All shadcn-svelte components are located in [src/lib/components/ui/](mdc:src/lib/components/ui/). Each component follows this structure:
+- Main component file: `component-name.svelte`
+- Export file: `index.ts`
+- Variants and styling use `tailwind-variants`
+
+## Available Components
+
+Currently installed:
+- **Button**: [src/lib/components/ui/button/](mdc:src/lib/components/ui/button/)
+
+Recommended components to install for most projects:
+```bash
+npx shadcn-svelte@latest add card dialog form input label select textarea toast dropdown-menu sheet tabs
+```
+
+## Import Convention
+
+Always import components from their index file:
+```typescript
+// ✅ Correct
+import { Button } from '$lib/components/ui/button';
+import { Card } from '$lib/components/ui/card';
+
+// ❌ Incorrect
+import Button from '$lib/components/ui/button/button.svelte';
+```
+
+## Component Usage Examples
+
+### Button Component
+```svelte
+<script>
+  import { Button } from '$lib/components/ui/button';
+</script>
+
+<!-- Primary button -->
+<Button>Click me</Button>
+
+<!-- Variants -->
+<Button variant="destructive">Delete</Button>
+<Button variant="outline">Cancel</Button>
+<Button variant="secondary">Save as draft</Button>
+<Button variant="ghost">Learn more</Button>
+<Button variant="link">Skip</Button>
+
+<!-- Sizes -->
+<Button size="sm">Small</Button>
+<Button size="default">Default</Button>
+<Button size="lg">Large</Button>
+<Button size="icon"><Icon /></Button>
+
+<!-- States -->
+<Button disabled>Disabled</Button>
+<Button loading>Loading...</Button>
+```
+
+### Form Patterns
+
+When creating forms, combine multiple shadcn-svelte components:
+```svelte
+<script>
+  import { Button } from '$lib/components/ui/button';
+  import { Input } from '$lib/components/ui/input';
+  import { Label } from '$lib/components/ui/label';
+  import { Card } from '$lib/components/ui/card';
+</script>
+
+<Card.Root>
+  <Card.Header>
+    <Card.Title>User Settings</Card.Title>
+    <Card.Description>Update your profile information</Card.Description>
+  </Card.Header>
+  <Card.Content>
+    <form class="space-y-4">
+      <div class="space-y-2">
+        <Label for="name">Name</Label>
+        <Input id="name" placeholder="Enter your name" />
+      </div>
+      <div class="space-y-2">
+        <Label for="email">Email</Label>
+        <Input id="email" type="email" placeholder="Enter your email" />
+      </div>
+    </form>
+  </Card.Content>
+  <Card.Footer>
+    <Button type="submit">Save changes</Button>
+  </Card.Footer>
+</Card.Root>
+```
+
+## Styling Guidelines
+
+1. **Use Tailwind Classes**: Components are styled with Tailwind CSS utilities
+2. **Respect Component Variants**: Use the built-in variant props instead of overriding with classes
+3. **Custom Styling**: When needed, use the `class` prop to add additional styles:
+   ```svelte
+   <Button class="w-full">Full width button</Button>
+   ```
+
+## Accessibility
+
+All shadcn-svelte components are built with accessibility in mind:
+- Proper ARIA labels and roles
+- Keyboard navigation support
+- Screen reader friendly
+- Focus management
+
+Always maintain these accessibility features when customizing components.
+
+## Theme Customization
+
+The theme is defined in [src/app.css](mdc:src/app.css). To customize:
+
+1. Update CSS variables in `:root` for light mode
+2. Update CSS variables in `.dark` for dark mode
+3. Use the theme variables in your custom components:
+   ```css
+   .custom-element {
+     background-color: hsl(var(--background));
+     color: hsl(var(--foreground));
+   }
+   ```
+
+## Adding New Components
+
+To add a new shadcn-svelte component:
+```bash
+# Single component
+npx shadcn-svelte@latest add [component-name]
+
+# Multiple components
+npx shadcn-svelte@latest add dialog card form
+```
+
+After adding, the component will be available in `$lib/components/ui/[component-name]`.
+
+## Component Composition
+
+Build complex UI by composing simple components:
+```svelte
+<script>
+  import { Button } from '$lib/components/ui/button';
+  import { Dialog } from '$lib/components/ui/dialog';
+  import { Input } from '$lib/components/ui/input';
+  import { Label } from '$lib/components/ui/label';
+</script>
+
+<Dialog.Root>
+  <Dialog.Trigger>
+    <Button>Open Dialog</Button>
+  </Dialog.Trigger>
+  <Dialog.Content>
+    <Dialog.Header>
+      <Dialog.Title>Edit Profile</Dialog.Title>
+      <Dialog.Description>
+        Make changes to your profile here.
+      </Dialog.Description>
+    </Dialog.Header>
+    <div class="grid gap-4 py-4">
+      <div class="grid grid-cols-4 items-center gap-4">
+        <Label for="name" class="text-right">Name</Label>
+        <Input id="name" class="col-span-3" />
+      </div>
+    </div>
+    <Dialog.Footer>
+      <Button type="submit">Save changes</Button>
+    </Dialog.Footer>
+  </Dialog.Content>
+</Dialog.Root>
+```
+
+## Best Practices
+
+1. **Consistent Usage**: Use shadcn-svelte components throughout the app for consistency
+2. **Don't Reinvent**: Check if a component exists before creating custom UI
+3. **Extend, Don't Replace**: If you need custom behavior, extend existing components
+4. **Mobile First**: All components are responsive by default
+5. **Type Safety**: Components include TypeScript definitions
+
+## Common Patterns
+
+### Loading States
+```svelte
+{#if loading}
+  <Button disabled>
+    <Loader2 class="mr-2 h-4 w-4 animate-spin" />
+    Loading...
+  </Button>
+{:else}
+  <Button on:click={handleSubmit}>Submit</Button>
+{/if}
+```
+
+### Error Handling
+```svelte
+{#if error}
+  <Alert variant="destructive">
+    <AlertCircle class="h-4 w-4" />
+    <Alert.Title>Error</Alert.Title>
+    <Alert.Description>{error.message}</Alert.Description>
+  </Alert>
+{/if}
+```
+
+### Data Tables
+```svelte
+<Table.Root>
+  <Table.Header>
+    <Table.Row>
+      <Table.Head>Name</Table.Head>
+      <Table.Head>Email</Table.Head>
+      <Table.Head>Actions</Table.Head>
+    </Table.Row>
+  </Table.Header>
+  <Table.Body>
+    {#each users as user}
+      <Table.Row>
+        <Table.Cell>{user.name}</Table.Cell>
+        <Table.Cell>{user.email}</Table.Cell>
+        <Table.Cell>
+          <Button size="sm" variant="outline">Edit</Button>
+        </Table.Cell>
+      </Table.Row>
+    {/each}
+  </Table.Body>
+</Table.Root>
+```
+
+Remember: The goal is to build beautiful, accessible, and consistent UI quickly. Let shadcn-svelte handle the heavy lifting!
