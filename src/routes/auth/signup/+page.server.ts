@@ -1,6 +1,6 @@
 import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
-import { signUpWithEmail, getOAuthSignInUrl } from '$lib/server/auth.js';
+import { signUpWithEmail, getOAuthSignInUrl, setAuthCookies } from '$lib/server/auth.js';
 
 export const load: PageServerLoad = async ({ locals, url }) => {
 	// Redirect if already authenticated
@@ -15,12 +15,14 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 };
 
 export const actions: Actions = {
-	signup: async ({ request }) => {
+	signup: async (event) => {
+		const { request, cookies, url } = event;
 		const data = await request.formData();
 		const email = data.get('email') as string;
 		const password = data.get('password') as string;
 		const confirmPassword = data.get('confirmPassword') as string;
 		const fullName = data.get('fullName') as string;
+		const redirectTo = data.get('redirectTo') as string;
 
 		if (!email) {
 			return fail(400, {
@@ -78,9 +80,15 @@ export const actions: Actions = {
 
 			// If session was created immediately (email confirmation disabled)
 			if (authData.session) {
-				// In this case, we'd need to set cookies and redirect
-				// But typically signup requires email confirmation
-				redirect(302, '/auth/login?message=Account created successfully. Please sign in.');
+				// Set authentication cookies
+				setAuthCookies(event, authData.session);
+				
+				// Return success with redirect info instead of redirecting
+				return {
+					success: true,
+					redirectTo: redirectTo || '/dashboard',
+					message: 'Account created successfully! Redirecting...'
+				};
 			}
 
 			return {

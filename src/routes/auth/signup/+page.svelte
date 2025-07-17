@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { goto, invalidateAll } from '$app/navigation';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
@@ -8,7 +9,6 @@
 	import { Separator } from '$lib/components/ui/separator';
 	import { Eye, EyeOff, Github, Mail, CheckCircle } from 'lucide-svelte';
 	import type { ActionData, PageData } from './$types';
-	import { isValidEmail } from '$lib/utils';
 
 	export let data: PageData;
 	export let form: ActionData;
@@ -20,49 +20,6 @@
 	let password = '';
 	let confirmPassword = '';
 	let fullName = form?.fullName || '';
-	let emailError = '';
-	let passwordError = '';
-	let confirmPasswordError = '';
-	let fullNameError = '';
-
-	function validateForm() {
-		emailError = '';
-		passwordError = '';
-		confirmPasswordError = '';
-		fullNameError = '';
-
-		if (!email) {
-			emailError = 'Email is required';
-		} else if (!isValidEmail(email)) {
-			emailError = 'Please enter a valid email address';
-		}
-
-		if (!password) {
-			passwordError = 'Password is required';
-		} else if (password.length < 8) {
-			passwordError = 'Password must be at least 8 characters long';
-		}
-
-		if (!confirmPassword) {
-			confirmPasswordError = 'Please confirm your password';
-		} else if (password !== confirmPassword) {
-			confirmPasswordError = 'Passwords do not match';
-		}
-
-		if (!fullName) {
-			fullNameError = 'Full name is required';
-		}
-
-		return !emailError && !passwordError && !confirmPasswordError && !fullNameError;
-	}
-
-	function handleSubmit() {
-		if (!validateForm()) {
-			return false;
-		}
-		loading = true;
-		return true;
-	}
 </script>
 
 <svelte:head>
@@ -93,7 +50,11 @@
 					{:else}
 						<!-- OAuth Buttons -->
 						<div class="space-y-3">
-							<form method="POST" action="?/oauth">
+							<form 
+								method="POST" 
+								action="?/oauth"
+								use:enhance
+							>
 								<input type="hidden" name="provider" value="google" />
 								{#if data.redirectTo}
 									<input type="hidden" name="redirectTo" value={data.redirectTo} />
@@ -104,7 +65,11 @@
 								</Button>
 							</form>
 
-							<form method="POST" action="?/oauth">
+							<form 
+								method="POST" 
+								action="?/oauth"
+								use:enhance
+							>
 								<input type="hidden" name="provider" value="github" />
 								{#if data.redirectTo}
 									<input type="hidden" name="redirectTo" value={data.redirectTo} />
@@ -129,17 +94,25 @@
 						<form
 							method="POST"
 							action="?/signup"
+							class="space-y-4"
 							use:enhance={() => {
-								return ({ update }) => {
+								loading = true;
+								return ({ result, update }) => {
 									loading = false;
+									
+									// Handle successful signup with redirect
+									if (result.type === 'success' && result.data?.redirectTo) {
+										// Invalidate all data to refresh authentication state
+										invalidateAll();
+										// Navigate to dashboard
+										goto(result.data.redirectTo as string);
+										return;
+									}
+									
+									// Handle other results normally
 									update();
 								};
 							}}
-							onsubmit={(e) => {
-								e.preventDefault();
-								return handleSubmit();
-							}}
-							class="space-y-4"
 						>
 							{#if data.redirectTo}
 								<input type="hidden" name="redirectTo" value={data.redirectTo} />
@@ -161,13 +134,9 @@
 									type="text"
 									placeholder="Enter your full name"
 									bind:value={fullName}
-									class={fullNameError ? 'border-destructive' : ''}
 									required
 									disabled={loading}
 								/>
-								{#if fullNameError}
-									<p class="text-destructive text-sm">{fullNameError}</p>
-								{/if}
 							</div>
 
 							<!-- Email Field -->
@@ -179,13 +148,9 @@
 									type="email"
 									placeholder="Enter your email"
 									bind:value={email}
-									class={emailError ? 'border-destructive' : ''}
 									required
 									disabled={loading}
 								/>
-								{#if emailError}
-									<p class="text-destructive text-sm">{emailError}</p>
-								{/if}
 							</div>
 
 							<!-- Password Field -->
@@ -198,7 +163,7 @@
 										type={showPassword ? 'text' : 'password'}
 										placeholder="Enter your password"
 										bind:value={password}
-										class="pr-10 {passwordError ? 'border-destructive' : ''}"
+										class="pr-10"
 										required
 										disabled={loading}
 									/>
@@ -214,9 +179,6 @@
 										{/if}
 									</button>
 								</div>
-								{#if passwordError}
-									<p class="text-destructive text-sm">{passwordError}</p>
-								{/if}
 							</div>
 
 							<!-- Confirm Password Field -->
@@ -229,7 +191,7 @@
 										type={showConfirmPassword ? 'text' : 'password'}
 										placeholder="Confirm your password"
 										bind:value={confirmPassword}
-										class="pr-10 {confirmPasswordError ? 'border-destructive' : ''}"
+										class="pr-10"
 										required
 										disabled={loading}
 									/>
@@ -245,13 +207,14 @@
 										{/if}
 									</button>
 								</div>
-								{#if confirmPasswordError}
-									<p class="text-destructive text-sm">{confirmPasswordError}</p>
-								{/if}
 							</div>
 
 							<!-- Submit Button -->
-							<Button type="submit" class="w-full" disabled={loading}>
+							<Button 
+								type="submit" 
+								class="w-full" 
+								disabled={loading}
+							>
 								{#if loading}
 									<div
 										class="border-background mr-2 h-4 w-4 animate-spin rounded-full border-2 border-t-transparent"

@@ -18,19 +18,76 @@
 
 	$: user = data.user;
 	$: profile = data.profile;
+	$: dashboardStats = data.stats;
 
-	// Sample data for dashboard
-	const recentActivity = [
-		{ id: 1, type: 'chat', title: 'Started conversation about AI', time: '2 hours ago' },
-		{ id: 2, type: 'profile', title: 'Updated profile information', time: '1 day ago' },
-		{ id: 3, type: 'login', title: 'Logged in from new device', time: '3 days ago' }
-	];
+	// Format numbers for display
+	function formatNumber(num: number): string {
+		if (num >= 1000000) {
+			return (num / 1000000).toFixed(1) + 'M';
+		} else if (num >= 1000) {
+			return (num / 1000).toFixed(1) + 'K';
+		}
+		return num.toString();
+	}
 
-	const stats = [
-		{ label: 'Total Conversations', value: '12', icon: MessageSquare, color: 'bg-blue-500' },
-		{ label: 'Active Sessions', value: '3', icon: Activity, color: 'bg-green-500' },
-		{ label: 'Profile Views', value: '47', icon: User, color: 'bg-purple-500' },
-		{ label: 'Last Login', value: 'Today', icon: Clock, color: 'bg-orange-500' }
+	// Format file size
+	function formatFileSize(bytes: number): string {
+		if (bytes >= 1024 * 1024 * 1024) {
+			return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+		} else if (bytes >= 1024 * 1024) {
+			return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+		} else if (bytes >= 1024) {
+			return (bytes / 1024).toFixed(1) + ' KB';
+		}
+		return bytes + ' B';
+	}
+
+	// Format relative time
+	function formatRelativeTime(date: Date): string {
+		const now = new Date();
+		const diff = now.getTime() - date.getTime();
+		const seconds = Math.floor(diff / 1000);
+		const minutes = Math.floor(seconds / 60);
+		const hours = Math.floor(minutes / 60);
+		const days = Math.floor(hours / 24);
+
+		if (days > 0) {
+			return `${days} day${days > 1 ? 's' : ''} ago`;
+		} else if (hours > 0) {
+			return `${hours} hour${hours > 1 ? 's' : ''} ago`;
+		} else if (minutes > 0) {
+			return `${minutes} minute${minutes > 1 ? 's' : ''} ago`;
+		} else {
+			return 'Just now';
+		}
+	}
+
+	// Create stats array from real data
+	$: stats = [
+		{ 
+			label: 'Total Conversations', 
+			value: formatNumber(dashboardStats?.totalChats || 0), 
+			icon: MessageSquare, 
+			color: 'bg-blue-500' 
+		},
+		{ 
+			label: 'Messages Sent', 
+			value: formatNumber(dashboardStats?.totalMessages || 0), 
+			icon: Activity, 
+			color: 'bg-green-500' 
+		},
+		{ 
+			label: 'API Calls', 
+			value: formatNumber(dashboardStats?.apiUsage?.total || 0), 
+			icon: Settings, 
+			color: 'bg-purple-500' 
+		},
+		{ 
+			label: 'Storage Used', 
+			value: formatFileSize(dashboardStats?.storageUsage?.totalSize || 0), 
+			icon: Clock, 
+			color: 'bg-orange-500' 
+		}
 	];
 </script>
 
@@ -154,23 +211,32 @@
 			</Card.Header>
 			<Card.Content>
 				<div class="space-y-4">
-					{#each recentActivity as activity}
-						<div class="flex items-center space-x-4">
-							<div class="h-8 w-8 rounded-full bg-muted flex items-center justify-center">
-								{#if activity.type === 'chat'}
-									<MessageSquare class="h-4 w-4" />
-								{:else if activity.type === 'profile'}
-									<User class="h-4 w-4" />
-								{:else}
-									<Clock class="h-4 w-4" />
-								{/if}
+					{#if dashboardStats?.recentActivity?.length > 0}
+						{#each dashboardStats.recentActivity as activity}
+							<div class="flex items-center space-x-4">
+								<div class="h-8 w-8 rounded-full bg-muted flex items-center justify-center">
+									{#if activity.type === 'chat'}
+										<MessageSquare class="h-4 w-4" />
+									{:else if activity.type === 'api'}
+										<Settings class="h-4 w-4" />
+									{:else if activity.type === 'storage'}
+										<Calendar class="h-4 w-4" />
+									{:else}
+										<Clock class="h-4 w-4" />
+									{/if}
+								</div>
+								<div class="flex-1">
+									<p class="text-sm font-medium">{activity.details}</p>
+									<p class="text-xs text-muted-foreground">{formatRelativeTime(activity.timestamp)}</p>
+								</div>
 							</div>
-							<div class="flex-1">
-								<p class="text-sm font-medium">{activity.title}</p>
-								<p class="text-xs text-muted-foreground">{activity.time}</p>
-							</div>
+						{/each}
+					{:else}
+						<div class="text-center text-muted-foreground py-8">
+							<Activity class="h-8 w-8 mx-auto mb-2 opacity-50" />
+							<p class="text-sm">No recent activity</p>
 						</div>
-					{/each}
+					{/if}
 				</div>
 			</Card.Content>
 		</Card.Root>

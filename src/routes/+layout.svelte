@@ -249,7 +249,7 @@
 			
 			<div class="border-t border-border pt-8 mt-8 flex flex-col sm:flex-row justify-between items-center">
 				<p class="text-sm text-muted-foreground">
-					© 2024 SvelteKit Accelerator. All rights reserved.
+					© 2025 SvelteKit Accelerator. All rights reserved.
 				</p>
 				<div class="flex items-center space-x-4 mt-4 sm:mt-0">
 					<a href="https://github.com/yourusername/sveltekit-accelerator" class="text-muted-foreground hover:text-foreground">

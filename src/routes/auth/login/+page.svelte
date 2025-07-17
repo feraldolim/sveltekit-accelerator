@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { enhance } from '$app/forms';
+	import { enhance, applyAction } from '$app/forms';
+	import { invalidateAll } from '$app/navigation';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
@@ -41,7 +42,15 @@
 			<Card.Content class="space-y-6 p-0">
 				<!-- OAuth Buttons -->
 				<div class="space-y-3">
-					<form method="POST" action="?/oauth">
+					<form 
+						method="POST" 
+						action="?/oauth"
+						use:enhance={() => {
+							return async ({ result }) => {
+								await applyAction(result);
+							};
+						}}
+					>
 						<input type="hidden" name="provider" value="google" />
 						{#if data.redirectTo}
 							<input type="hidden" name="redirectTo" value={data.redirectTo} />
@@ -52,7 +61,15 @@
 						</Button>
 					</form>
 
-					<form method="POST" action="?/oauth">
+					<form 
+						method="POST" 
+						action="?/oauth"
+						use:enhance={() => {
+							return async ({ result }) => {
+								await applyAction(result);
+							};
+						}}
+					>
 						<input type="hidden" name="provider" value="github" />
 						{#if data.redirectTo}
 							<input type="hidden" name="redirectTo" value={data.redirectTo} />
@@ -79,9 +96,16 @@
 					action="?/login"
 					use:enhance={() => {
 						loading = true;
-						return ({ update }) => {
+						return async ({ result }) => {
 							loading = false;
-							update();
+							
+							// Apply the action result, which will handle redirects properly
+							await applyAction(result);
+							
+							// If it's a redirect, invalidate all data to ensure fresh state
+							if (result.type === 'redirect') {
+								await invalidateAll();
+							}
 						};
 					}}
 					class="space-y-4"
