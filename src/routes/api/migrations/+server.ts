@@ -1,8 +1,8 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { 
-	runPendingMigrations, 
-	getMigrationStatus, 
+import {
+	runPendingMigrations,
+	getMigrationStatus,
 	validateSchema,
 	createBackup,
 	seedDatabase

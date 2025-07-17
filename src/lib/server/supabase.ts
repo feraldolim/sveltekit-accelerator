@@ -81,4 +81,4 @@ export type Database = {
 
 // Typed clients
 export const db = supabase as ReturnType<typeof createClient<Database>>;
-export const adminDb = supabaseAdmin as ReturnType<typeof createClient<Database>>; 
+export const adminDb = supabaseAdmin as ReturnType<typeof createClient<Database>>;

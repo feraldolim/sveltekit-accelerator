@@ -6,7 +6,7 @@ export const actions: Actions = {
 	default: async (event) => {
 		// Clear auth cookies
 		clearAuthCookies(event);
-		
+
 		// Redirect to home page
 		redirect(302, '/');
 	}

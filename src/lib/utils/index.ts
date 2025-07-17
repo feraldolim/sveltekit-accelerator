@@ -13,13 +13,13 @@ export function cn(...inputs: ClassValue[]) {
  */
 export function formatDate(date: string | Date, options?: Intl.DateTimeFormatOptions): string {
 	const dateObj = typeof date === 'string' ? new Date(date) : date;
-	
+
 	const defaultOptions: Intl.DateTimeFormatOptions = {
 		year: 'numeric',
 		month: 'long',
 		day: 'numeric'
 	};
-	
+
 	return new Intl.DateTimeFormat('en-US', { ...defaultOptions, ...options }).format(dateObj);
 }
 
@@ -129,27 +129,27 @@ export function validatePassword(password: string): {
 	errors: string[];
 } {
 	const errors: string[] = [];
-	
+
 	if (password.length < 8) {
 		errors.push('Password must be at least 8 characters long');
 	}
-	
+
 	if (!/[A-Z]/.test(password)) {
 		errors.push('Password must contain at least one uppercase letter');
 	}
-	
+
 	if (!/[a-z]/.test(password)) {
 		errors.push('Password must contain at least one lowercase letter');
 	}
-	
+
 	if (!/\d/.test(password)) {
 		errors.push('Password must contain at least one number');
 	}
-	
+
 	if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
 		errors.push('Password must contain at least one special character');
 	}
-	
+
 	return {
 		isValid: errors.length === 0,
 		errors
@@ -161,11 +161,11 @@ export function validatePassword(password: string): {
  */
 export function formatFileSize(bytes: number): string {
 	if (bytes === 0) return '0 Bytes';
-	
+
 	const k = 1024;
 	const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
 	const i = Math.floor(Math.log(bytes) / Math.log(k));
-	
+
 	return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
@@ -188,7 +188,7 @@ export async function copyToClipboard(text: string): Promise<boolean> {
 		document.body.appendChild(textArea);
 		textArea.focus();
 		textArea.select();
-		
+
 		try {
 			const successful = document.execCommand('copy');
 			document.body.removeChild(textArea);
@@ -207,7 +207,7 @@ export async function copyToClipboard(text: string): Promise<boolean> {
 export function getInitials(name: string): string {
 	return name
 		.split(' ')
-		.map(n => n[0])
+		.map((n) => n[0])
 		.join('')
 		.toUpperCase()
 		.slice(0, 2);
@@ -217,7 +217,7 @@ export function getInitials(name: string): string {
  * Sleep for a given number of milliseconds
  */
 export function sleep(ms: number): Promise<void> {
-	return new Promise(resolve => setTimeout(resolve, ms));
+	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
@@ -241,7 +241,7 @@ export function isBrowser(): boolean {
 export const storage = {
 	get<T>(key: string, defaultValue?: T): T | null {
 		if (!isBrowser()) return defaultValue || null;
-		
+
 		try {
 			const item = localStorage.getItem(key);
 			return item ? JSON.parse(item) : defaultValue || null;
@@ -250,30 +250,30 @@ export const storage = {
 			return defaultValue || null;
 		}
 	},
-	
+
 	set<T>(key: string, value: T): void {
 		if (!isBrowser()) return;
-		
+
 		try {
 			localStorage.setItem(key, JSON.stringify(value));
 		} catch (error) {
 			console.error('Error writing to localStorage:', error);
 		}
 	},
-	
+
 	remove(key: string): void {
 		if (!isBrowser()) return;
-		
+
 		try {
 			localStorage.removeItem(key);
 		} catch (error) {
 			console.error('Error removing from localStorage:', error);
 		}
 	},
-	
+
 	clear(): void {
 		if (!isBrowser()) return;
-		
+
 		try {
 			localStorage.clear();
 		} catch (error) {
@@ -291,39 +291,39 @@ export const url = {
 	 */
 	build(base: string, params: Record<string, string | number | boolean | undefined>): string {
 		const url = new URL(base, window.location.origin);
-		
+
 		Object.entries(params).forEach(([key, value]) => {
 			if (value !== undefined) {
 				url.searchParams.set(key, String(value));
 			}
 		});
-		
+
 		return url.toString();
 	},
-	
+
 	/**
 	 * Get query parameter value
 	 */
 	getParam(name: string): string | null {
 		if (!isBrowser()) return null;
-		
+
 		const urlParams = new URLSearchParams(window.location.search);
 		return urlParams.get(name);
 	},
-	
+
 	/**
 	 * Get all query parameters
 	 */
 	getParams(): Record<string, string> {
 		if (!isBrowser()) return {};
-		
+
 		const params: Record<string, string> = {};
 		const urlParams = new URLSearchParams(window.location.search);
-		
+
 		urlParams.forEach((value, key) => {
 			params[key] = value;
 		});
-		
+
 		return params;
 	}
 };
@@ -338,19 +338,22 @@ export const array = {
 	unique<T>(arr: T[]): T[] {
 		return [...new Set(arr)];
 	},
-	
+
 	/**
 	 * Group array items by a key
 	 */
 	groupBy<T, K extends keyof T>(arr: T[], key: K): Record<string, T[]> {
-		return arr.reduce((groups, item) => {
-			const groupKey = String(item[key]);
-			groups[groupKey] = groups[groupKey] || [];
-			groups[groupKey].push(item);
-			return groups;
-		}, {} as Record<string, T[]>);
+		return arr.reduce(
+			(groups, item) => {
+				const groupKey = String(item[key]);
+				groups[groupKey] = groups[groupKey] || [];
+				groups[groupKey].push(item);
+				return groups;
+			},
+			{} as Record<string, T[]>
+		);
 	},
-	
+
 	/**
 	 * Shuffle array randomly
 	 */
@@ -362,11 +365,11 @@ export const array = {
 		}
 		return shuffled;
 	},
-	
+
 	/**
 	 * Get random item from array
 	 */
 	random<T>(arr: T[]): T | undefined {
 		return arr[Math.floor(Math.random() * arr.length)];
 	}
-}; 
+};

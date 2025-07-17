@@ -8,7 +8,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		if (!locals.session || !locals.user) {
 			error(401, 'Authentication required');
 		}
-		
+
 		const { prompt, system_prompt, model } = await request.json();
 
 		// Validate input
@@ -21,22 +21,17 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		}
 
 		// Generate text
-		const response = await generateText(
-			prompt,
-			system_prompt,
-			model || 'openai/gpt-3.5-turbo'
-		);
-		
+		const response = await generateText(prompt, system_prompt, model || 'openai/gpt-3.5-turbo');
+
 		return json({
 			text: response,
 			prompt,
 			model: model || 'openai/gpt-3.5-turbo',
 			user_id: locals.user.id
 		});
-
 	} catch (err) {
 		console.error('Completion API error:', err);
-		
+
 		if (err instanceof Error) {
 			// Handle specific errors
 			if (err.message.includes('OpenRouter API error')) {
@@ -46,7 +41,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 				error(401, 'Authentication required');
 			}
 		}
-		
+
 		error(500, 'Internal server error');
 	}
-}; 
+};

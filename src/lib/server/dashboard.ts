@@ -27,13 +27,7 @@ export interface DashboardStats {
  * Get dashboard statistics for a user
  */
 export async function getDashboardStats(userId: string): Promise<DashboardStats> {
-	const [
-		chatsStats,
-		messagesStats,
-		apiStats,
-		storageStats,
-		recentActivity
-	] = await Promise.all([
+	const [chatsStats, messagesStats, apiStats, storageStats, recentActivity] = await Promise.all([
 		getChatStats(userId),
 		getMessageStats(userId),
 		getApiStats(userId),
@@ -65,12 +59,13 @@ async function getChatStats(userId: string) {
 	}
 
 	const total = data?.length || 0;
-	const thisMonth = data?.filter(chat => {
-		const chatDate = new Date(chat.created_at);
-		const now = new Date();
-		const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-		return chatDate >= monthStart;
-	}).length || 0;
+	const thisMonth =
+		data?.filter((chat) => {
+			const chatDate = new Date(chat.created_at);
+			const now = new Date();
+			const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+			return chatDate >= monthStart;
+		}).length || 0;
 
 	return { total, thisMonth };
 }
@@ -90,12 +85,13 @@ async function getMessageStats(userId: string) {
 	}
 
 	const total = data?.length || 0;
-	const thisMonth = data?.filter(message => {
-		const messageDate = new Date(message.created_at);
-		const now = new Date();
-		const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-		return messageDate >= monthStart;
-	}).length || 0;
+	const thisMonth =
+		data?.filter((message) => {
+			const messageDate = new Date(message.created_at);
+			const now = new Date();
+			const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+			return messageDate >= monthStart;
+		}).length || 0;
 
 	return { total, thisMonth };
 }
@@ -116,13 +112,14 @@ async function getApiStats(userId: string) {
 
 	const total = data?.length || 0;
 	const tokensUsed = data?.reduce((sum, usage) => sum + (usage.tokens_used || 0), 0) || 0;
-	
-	const thisMonth = data?.filter(usage => {
-		const usageDate = new Date(usage.created_at);
-		const now = new Date();
-		const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-		return usageDate >= monthStart;
-	}).length || 0;
+
+	const thisMonth =
+		data?.filter((usage) => {
+			const usageDate = new Date(usage.created_at);
+			const now = new Date();
+			const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+			return usageDate >= monthStart;
+		}).length || 0;
 
 	return { total, thisMonth, tokensUsed };
 }
@@ -139,24 +136,28 @@ async function getStorageStats(userId: string) {
 
 	if (error) {
 		console.error('Error fetching storage stats:', error);
-		return { 
-			totalFiles: 0, 
-			totalSize: 0, 
-			byBucket: {} 
+		return {
+			totalFiles: 0,
+			totalSize: 0,
+			byBucket: {}
 		};
 	}
 
 	const totalFiles = data?.length || 0;
 	const totalSize = data?.reduce((sum, file) => sum + (file.file_size || 0), 0) || 0;
-	
-	const byBucket = data?.reduce((acc, file) => {
-		if (!acc[file.bucket]) {
-			acc[file.bucket] = { count: 0, size: 0 };
-		}
-		acc[file.bucket].count++;
-		acc[file.bucket].size += file.file_size || 0;
-		return acc;
-	}, {} as Record<string, { count: number; size: number }>) || {};
+
+	const byBucket =
+		data?.reduce(
+			(acc, file) => {
+				if (!acc[file.bucket]) {
+					acc[file.bucket] = { count: 0, size: 0 };
+				}
+				acc[file.bucket].count++;
+				acc[file.bucket].size += file.file_size || 0;
+				return acc;
+			},
+			{} as Record<string, { count: number; size: number }>
+		) || {};
 
 	return { totalFiles, totalSize, byBucket };
 }
@@ -177,13 +178,15 @@ async function getRecentActivity(userId: string) {
 		return [];
 	}
 
-	return data?.map(activity => ({
-		id: activity.id,
-		action: activity.action,
-		details: getActivityDetails(activity.action, activity.details),
-		timestamp: new Date(activity.created_at),
-		type: getActivityType(activity.action)
-	})) || [];
+	return (
+		data?.map((activity) => ({
+			id: activity.id,
+			action: activity.action,
+			details: getActivityDetails(activity.action, activity.details),
+			timestamp: new Date(activity.created_at),
+			type: getActivityType(activity.action)
+		})) || []
+	);
 }
 
 /**
@@ -214,7 +217,7 @@ function getActivityDetails(action: string, details: any): string {
 		case 'profile_updated':
 			return `Updated profile information`;
 		default:
-			return action.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+			return action.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
 	}
 }
 
@@ -228,15 +231,13 @@ export async function logUserActivity(
 	ipAddress?: string,
 	userAgent?: string
 ) {
-	const { error } = await supabase
-		.from('user_activity')
-		.insert({
-			user_id: userId,
-			action,
-			details,
-			ip_address: ipAddress,
-			user_agent: userAgent
-		});
+	const { error } = await supabase.from('user_activity').insert({
+		user_id: userId,
+		action,
+		details,
+		ip_address: ipAddress,
+		user_agent: userAgent
+	});
 
 	if (error) {
 		console.error('Error logging user activity:', error);
@@ -256,18 +257,16 @@ export async function logApiUsage(
 	statusCode?: number,
 	errorMessage?: string
 ) {
-	const { error } = await supabase
-		.from('api_usage')
-		.insert({
-			user_id: userId,
-			endpoint,
-			method,
-			model,
-			tokens_used: tokensUsed,
-			response_time: responseTime,
-			status_code: statusCode,
-			error_message: errorMessage
-		});
+	const { error } = await supabase.from('api_usage').insert({
+		user_id: userId,
+		endpoint,
+		method,
+		model,
+		tokens_used: tokensUsed,
+		response_time: responseTime,
+		status_code: statusCode,
+		error_message: errorMessage
+	});
 
 	if (error) {
 		console.error('Error logging API usage:', error);
@@ -284,15 +283,13 @@ export async function logStorageUsage(
 	fileSize: number,
 	mimeType?: string
 ) {
-	const { error } = await supabase
-		.from('storage_usage')
-		.insert({
-			user_id: userId,
-			bucket,
-			file_path: filePath,
-			file_size: fileSize,
-			mime_type: mimeType
-		});
+	const { error } = await supabase.from('storage_usage').insert({
+		user_id: userId,
+		bucket,
+		file_path: filePath,
+		file_size: fileSize,
+		mime_type: mimeType
+	});
 
 	if (error) {
 		console.error('Error logging storage usage:', error);
@@ -336,19 +333,14 @@ export async function cleanupExpiredSessions() {
  * Get system health metrics
  */
 export async function getSystemHealth() {
-	const [
-		totalUsers,
-		totalChats,
-		totalMessages,
-		totalApiCalls,
-		totalStorageSize
-	] = await Promise.all([
-		getTotalUsers(),
-		getTotalChats(),
-		getTotalMessages(),
-		getTotalApiCalls(),
-		getTotalStorageSize()
-	]);
+	const [totalUsers, totalChats, totalMessages, totalApiCalls, totalStorageSize] =
+		await Promise.all([
+			getTotalUsers(),
+			getTotalChats(),
+			getTotalMessages(),
+			getTotalApiCalls(),
+			getTotalStorageSize()
+		]);
 
 	return {
 		totalUsers,
@@ -374,9 +366,7 @@ async function getTotalUsers() {
 }
 
 async function getTotalChats() {
-	const { count, error } = await supabase
-		.from('chats')
-		.select('*', { count: 'exact', head: true });
+	const { count, error } = await supabase.from('chats').select('*', { count: 'exact', head: true });
 
 	if (error) {
 		console.error('Error fetching total chats:', error);

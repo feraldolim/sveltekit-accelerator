@@ -4,8 +4,8 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
-	import * as Card from "$lib/components/ui/card/index.js";
-	import * as Alert from "$lib/components/ui/alert/index.js";
+	import * as Card from '$lib/components/ui/card/index.js';
+	import * as Alert from '$lib/components/ui/alert/index.js';
 	import { Separator } from '$lib/components/ui/separator';
 	import { Eye, EyeOff, Github, Mail } from 'lucide-svelte';
 	import type { ActionData, PageData } from './$types';
@@ -29,7 +29,7 @@
 	<meta name="description" content="Sign in to your account" />
 </svelte:head>
 
-<div class="min-h-screen flex items-center justify-center bg-background px-4 py-12">
+<div class="bg-background flex min-h-screen items-center justify-center px-4 py-12">
 	<div class="w-full max-w-md space-y-8">
 		<!-- Header -->
 		<div class="text-center">
@@ -42,8 +42,8 @@
 			<Card.Content class="space-y-6 p-0">
 				<!-- OAuth Buttons -->
 				<div class="space-y-3">
-					<form 
-						method="POST" 
+					<form
+						method="POST"
 						action="?/oauth"
 						use:enhance={() => {
 							return async ({ result }) => {
@@ -61,8 +61,8 @@
 						</Button>
 					</form>
 
-					<form 
-						method="POST" 
+					<form
+						method="POST"
 						action="?/oauth"
 						use:enhance={() => {
 							return async ({ result }) => {
@@ -86,22 +86,22 @@
 						<Separator class="w-full" />
 					</div>
 					<div class="relative flex justify-center text-xs uppercase">
-						<span class="bg-background px-2 text-muted-foreground">Or continue with email</span>
+						<span class="bg-background text-muted-foreground px-2">Or continue with email</span>
 					</div>
 				</div>
 
 				<!-- Email/Password Form -->
-				<form 
-					method="POST" 
+				<form
+					method="POST"
 					action="?/login"
 					use:enhance={() => {
 						loading = true;
 						return async ({ result }) => {
 							loading = false;
-							
+
 							// Apply the action result, which will handle redirects properly
 							await applyAction(result);
-							
+
 							// If it's a redirect, invalidate all data to ensure fresh state
 							if (result.type === 'redirect') {
 								await invalidateAll();
@@ -156,10 +156,7 @@
 					<div class="space-y-2">
 						<div class="flex items-center justify-between">
 							<Label for="password">Password</Label>
-							<a 
-								href="/auth/reset-password" 
-								class="text-sm text-primary hover:underline"
-							>
+							<a href="/auth/reset-password" class="text-primary text-sm hover:underline">
 								Forgot password?
 							</a>
 						</div>
@@ -177,12 +174,12 @@
 							<button
 								type="button"
 								class="absolute inset-y-0 right-0 flex items-center pr-3"
-								onclick={() => showPassword = !showPassword}
+								onclick={() => (showPassword = !showPassword)}
 							>
 								{#if showPassword}
-									<EyeOff class="h-4 w-4 text-muted-foreground" />
+									<EyeOff class="text-muted-foreground h-4 w-4" />
 								{:else}
-									<Eye class="h-4 w-4 text-muted-foreground" />
+									<Eye class="text-muted-foreground h-4 w-4" />
 								{/if}
 							</button>
 						</div>
@@ -191,7 +188,9 @@
 					<!-- Submit Button -->
 					<Button type="submit" class="w-full" disabled={loading}>
 						{#if loading}
-							<div class="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-background border-t-transparent"></div>
+							<div
+								class="border-background mr-2 h-4 w-4 animate-spin rounded-full border-2 border-t-transparent"
+							></div>
 							Signing in...
 						{:else}
 							Sign in
@@ -202,9 +201,11 @@
 				<!-- Sign Up Link -->
 				<div class="text-center text-sm">
 					<span class="text-muted-foreground">Don't have an account?</span>
-					<a 
-						href="/auth/signup{data.redirectTo ? `?redirectTo=${encodeURIComponent(data.redirectTo)}` : ''}"
-						class="text-primary hover:underline font-medium"
+					<a
+						href="/auth/signup{data.redirectTo
+							? `?redirectTo=${encodeURIComponent(data.redirectTo)}`
+							: ''}"
+						class="text-primary font-medium hover:underline"
 					>
 						Sign up
 					</a>
@@ -214,12 +215,12 @@
 
 		<!-- Footer -->
 		<div class="text-center">
-			<p class="text-xs text-muted-foreground">
-				By signing in, you agree to our 
+			<p class="text-muted-foreground text-xs">
+				By signing in, you agree to our
 				<a href="/terms" class="hover:underline">Terms of Service</a>
-				and 
+				and
 				<a href="/privacy" class="hover:underline">Privacy Policy</a>
 			</p>
 		</div>
 	</div>
-</div> 
+</div>

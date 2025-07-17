@@ -1,6 +1,13 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { createCompletion, createCompletionStream, parseStreamResponse, truncateMessages, type ChatMessage } from '$lib/server/llm.js';
+import {
+	createCompletion,
+	createCompletionStream,
+	parseStreamResponse,
+	truncateMessages,
+	type ChatMessage
+} from '$lib/server/llm.js';
+import { addMessage, createChat, updateChatTitle } from '$lib/server/chats.js';
 
 export const POST: RequestHandler = async ({ request, locals }) => {
 	try {
@@ -8,8 +15,16 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		if (!locals.session || !locals.user) {
 			error(401, 'Authentication required');
 		}
-		
-		const { messages, model, stream = false, temperature = 0.7, max_tokens } = await request.json();
+
+		const { 
+			messages, 
+			model, 
+			stream = false, 
+			temperature = 0.7, 
+			max_tokens,
+			chat_id,
+			system_prompt 
+		} = await request.json();
 
 		// Validate input
 		if (!messages || !Array.isArray(messages)) {
@@ -30,13 +45,45 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			}
 		}
 
+		// Create or use existing chat
+		let currentChatId = chat_id;
+		let isFirstMessage = false;
+		
+		if (!currentChatId) {
+			// Create a new chat
+			const newChat = await createChat(
+				locals.user.id,
+				'New Chat',
+				model || 'moonshotai/kimi-k2:free',
+				system_prompt
+			);
+			currentChatId = newChat.id;
+			isFirstMessage = true;
+		}
+
+		// Get the last user message to save to database
+		const lastUserMessage = messages[messages.length - 1];
+		if (lastUserMessage && lastUserMessage.role === 'user') {
+			await addMessage(
+				currentChatId,
+				'user',
+				lastUserMessage.content,
+				model || 'moonshotai/kimi-k2:free'
+			);
+
+			// Update chat title if this is the first message
+			if (isFirstMessage) {
+				await updateChatTitle(currentChatId, locals.user.id, lastUserMessage.content);
+			}
+		}
+
 		// Truncate messages to prevent token limit issues
 		const truncatedMessages = truncateMessages(messages, 4000);
 
 		// Prepare the completion request
 		const completionRequest = {
 			messages: truncatedMessages as ChatMessage[],
-			model: model || 'openai/gpt-3.5-turbo',
+			model: model || 'moonshotai/kimi-k2:free',
 			temperature,
 			max_tokens,
 			stream
@@ -45,17 +92,36 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		// Handle streaming response
 		if (stream) {
 			const responseStream = await createCompletionStream(completionRequest);
-			
+			let assistantResponse = '';
+
 			// Create a readable stream for the response
 			const readableStream = new ReadableStream({
 				async start(controller) {
 					try {
 						for await (const chunk of parseStreamResponse(responseStream)) {
+							// Accumulate the response for saving to database
+							const content = chunk.choices[0]?.delta?.content || '';
+							assistantResponse += content;
+
 							const data = `data: ${JSON.stringify(chunk)}\n\n`;
 							controller.enqueue(new TextEncoder().encode(data));
 						}
-						
-						// Send final message
+
+						// Save assistant response to database
+						if (assistantResponse.trim()) {
+							await addMessage(
+								currentChatId,
+								'assistant',
+								assistantResponse.trim(),
+								model || 'moonshotai/kimi-k2:free'
+							);
+						}
+
+						// Send final message with chat_id
+						controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({
+							chat_id: currentChatId,
+							done: true
+						})}\n\n`));
 						controller.enqueue(new TextEncoder().encode('data: [DONE]\n\n'));
 						controller.close();
 					} catch (err) {
@@ -69,26 +135,37 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 				headers: {
 					'Content-Type': 'text/event-stream',
 					'Cache-Control': 'no-cache',
-					'Connection': 'keep-alive'
+					Connection: 'keep-alive'
 				}
 			});
 		}
 
 		// Handle regular completion
 		const completion = await createCompletion(completionRequest);
-		
+
+		// Save assistant response to database
+		const assistantContent = completion.choices[0]?.message?.content;
+		if (assistantContent) {
+			await addMessage(
+				currentChatId,
+				'assistant',
+				assistantContent,
+				model || 'moonshotai/kimi-k2:free'
+			);
+		}
+
 		return json({
 			id: completion.id,
 			object: completion.object,
 			created: completion.created,
 			model: completion.model,
 			choices: completion.choices,
-			usage: completion.usage
+			usage: completion.usage,
+			chat_id: currentChatId
 		});
-
 	} catch (err) {
 		console.error('Chat API error:', err);
-		
+
 		if (err instanceof Error) {
 			// Handle specific errors
 			if (err.message.includes('OpenRouter API error')) {
@@ -98,7 +175,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 				error(401, 'Authentication required');
 			}
 		}
-		
+
 		error(500, 'Internal server error');
 	}
-}; 
+};

@@ -17,30 +17,36 @@ A modern, production-ready boilerplate for building full-stack web applications 
 ## 📋 Prerequisites
 
 Before you begin, ensure you have the following installed:
-- Node.js 18+ 
+
+- Node.js 18+
 - npm or pnpm
 - Git
 
 ## 🛠️ Quick Start
 
 1. **Clone the repository**
+
    ```bash
    git clone https://github.com/feraldolim/sveltekit-accelerator.git
    cd sveltekit-accelerator
    ```
 
 2. **Install dependencies**
+
    ```bash
    npm install
    ```
 
 3. **Set up environment variables**
+
    ```bash
    cp .env.example .env.local
    ```
+
    Then edit `.env.local` with your API keys and configuration.
 
 4. **Start the development server**
+
    ```bash
    npm run dev
    ```
@@ -96,6 +102,7 @@ sveltekit-accelerator/
 This template is configured for easy deployment to Cloudflare Pages. See the [Deployment Guide](./docs/DEPLOYMENT.md) for detailed instructions.
 
 Quick deploy:
+
 ```bash
 npm run build
 npx wrangler pages deploy ./build

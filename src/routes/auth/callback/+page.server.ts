@@ -34,7 +34,7 @@ export const load: PageServerLoad = async ({ url, cookies }) => {
 			secure: true,
 			sameSite: 'lax'
 		});
-		
+
 		cookies.set('sb-refresh-token', data.session.refresh_token, {
 			path: '/',
 			maxAge: 60 * 60 * 24 * 30, // 30 days
@@ -49,4 +49,4 @@ export const load: PageServerLoad = async ({ url, cookies }) => {
 		console.error('Callback error:', error);
 		redirect(302, `/auth/login?error=${encodeURIComponent('An unexpected error occurred')}`);
 	}
-}; 
+};

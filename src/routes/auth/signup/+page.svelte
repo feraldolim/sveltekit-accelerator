@@ -50,11 +50,7 @@
 					{:else}
 						<!-- OAuth Buttons -->
 						<div class="space-y-3">
-							<form 
-								method="POST" 
-								action="?/oauth"
-								use:enhance
-							>
+							<form method="POST" action="?/oauth" use:enhance>
 								<input type="hidden" name="provider" value="google" />
 								{#if data.redirectTo}
 									<input type="hidden" name="redirectTo" value={data.redirectTo} />
@@ -65,11 +61,7 @@
 								</Button>
 							</form>
 
-							<form 
-								method="POST" 
-								action="?/oauth"
-								use:enhance
-							>
+							<form method="POST" action="?/oauth" use:enhance>
 								<input type="hidden" name="provider" value="github" />
 								{#if data.redirectTo}
 									<input type="hidden" name="redirectTo" value={data.redirectTo} />
@@ -99,7 +91,7 @@
 								loading = true;
 								return ({ result, update }) => {
 									loading = false;
-									
+
 									// Handle successful signup with redirect
 									if (result.type === 'success' && result.data?.redirectTo) {
 										// Invalidate all data to refresh authentication state
@@ -108,7 +100,7 @@
 										goto(result.data.redirectTo as string);
 										return;
 									}
-									
+
 									// Handle other results normally
 									update();
 								};
@@ -210,11 +202,7 @@
 							</div>
 
 							<!-- Submit Button -->
-							<Button 
-								type="submit" 
-								class="w-full" 
-								disabled={loading}
-							>
+							<Button type="submit" class="w-full" disabled={loading}>
 								{#if loading}
 									<div
 										class="border-background mr-2 h-4 w-4 animate-spin rounded-full border-2 border-t-transparent"

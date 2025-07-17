@@ -1,6 +1,13 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { uploadFile, isValidFileType, isValidFileSize, STORAGE_BUCKETS, ALLOWED_IMAGE_TYPES, MAX_FILE_SIZE } from '$lib/server/storage.js';
+import {
+	uploadFile,
+	isValidFileType,
+	isValidFileSize,
+	STORAGE_BUCKETS,
+	ALLOWED_IMAGE_TYPES,
+	MAX_FILE_SIZE
+} from '$lib/server/storage.js';
 
 export const POST: RequestHandler = async ({ request, locals }) => {
 	try {
@@ -11,8 +18,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 		const formData = await request.formData();
 		const file = formData.get('file') as File;
-		const bucket = formData.get('bucket') as string || STORAGE_BUCKETS.UPLOADS;
-		const path = formData.get('path') as string || `user-${locals.user.id}`;
+		const bucket = (formData.get('bucket') as string) || STORAGE_BUCKETS.UPLOADS;
+		const path = (formData.get('path') as string) || `user-${locals.user.id}`;
 
 		// Validate file
 		if (!file || file.size === 0) {
@@ -46,10 +53,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			file: data,
 			message: 'File uploaded successfully'
 		});
-
 	} catch (err) {
 		console.error('Upload API error:', err);
-		
+
 		if (err instanceof Error) {
 			if (err.message.includes('Authentication required')) {
 				error(401, 'Authentication required');
@@ -61,7 +67,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 				error(400, 'File too large');
 			}
 		}
-		
+
 		error(500, 'Internal server error');
 	}
 };

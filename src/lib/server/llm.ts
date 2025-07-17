@@ -62,7 +62,7 @@ export async function createCompletion(request: CompletionRequest): Promise<Comp
 	const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
 		method: 'POST',
 		headers: {
-			'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+			Authorization: `Bearer ${OPENROUTER_API_KEY}`,
 			'Content-Type': 'application/json',
 			'HTTP-Referer': process.env.PUBLIC_APP_URL || 'http://localhost:5173',
 			'X-Title': 'SvelteKit Accelerator'
@@ -89,7 +89,7 @@ export async function createCompletionStream(request: CompletionRequest): Promis
 	const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
 		method: 'POST',
 		headers: {
-			'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+			Authorization: `Bearer ${OPENROUTER_API_KEY}`,
 			'Content-Type': 'application/json',
 			'HTTP-Referer': process.env.PUBLIC_APP_URL || 'http://localhost:5173',
 			'X-Title': 'SvelteKit Accelerator'
@@ -124,16 +124,16 @@ export async function* parseStreamResponse(stream: ReadableStream): AsyncGenerat
 	try {
 		while (true) {
 			const { done, value } = await reader.read();
-			
+
 			if (done) break;
-			
+
 			buffer += decoder.decode(value, { stream: true });
 			const lines = buffer.split('\n');
 			buffer = lines.pop() || '';
 
 			for (const line of lines) {
 				const trimmed = line.trim();
-				
+
 				if (trimmed === '') continue;
 				if (trimmed === 'data: [DONE]') return;
 				if (!trimmed.startsWith('data: ')) continue;
@@ -155,16 +155,16 @@ export async function* parseStreamResponse(stream: ReadableStream): AsyncGenerat
  * Simple completion helper that returns just the text content
  */
 export async function generateText(
-	prompt: string, 
-	systemPrompt?: string, 
+	prompt: string,
+	systemPrompt?: string,
 	model?: string
 ): Promise<string> {
 	const messages: ChatMessage[] = [];
-	
+
 	if (systemPrompt) {
 		messages.push({ role: 'system', content: systemPrompt });
 	}
-	
+
 	messages.push({ role: 'user', content: prompt });
 
 	const response = await createCompletion({
@@ -203,7 +203,7 @@ export async function createChatCompletion(
 export async function getAvailableModels(): Promise<unknown[]> {
 	const response = await fetch(`${OPENROUTER_BASE_URL}/models`, {
 		headers: {
-			'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+			Authorization: `Bearer ${OPENROUTER_API_KEY}`,
 			'Content-Type': 'application/json'
 		}
 	});
@@ -227,10 +227,7 @@ export function estimateTokenCount(text: string): number {
 /**
  * Truncate messages to fit within token limit
  */
-export function truncateMessages(
-	messages: ChatMessage[], 
-	maxTokens: number = 4000
-): ChatMessage[] {
+export function truncateMessages(messages: ChatMessage[], maxTokens: number = 4000): ChatMessage[] {
 	let totalTokens = 0;
 	const truncated: ChatMessage[] = [];
 
@@ -244,14 +241,14 @@ export function truncateMessages(
 	for (let i = messages.length - 1; i >= (messages[0]?.role === 'system' ? 1 : 0); i--) {
 		const message = messages[i];
 		const tokens = estimateTokenCount(message.content);
-		
+
 		if (totalTokens + tokens > maxTokens) {
 			break;
 		}
-		
+
 		truncated.unshift(message);
 		totalTokens += tokens;
 	}
 
 	return truncated;
-} 
+}

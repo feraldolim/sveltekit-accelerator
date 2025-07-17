@@ -24,7 +24,6 @@ export const actions: Actions = {
 		const password = data.get('password') as string;
 		const redirectTo = data.get('redirectTo') as string;
 
-
 		if (!email) {
 			return fail(400, {
 				email,
@@ -63,7 +62,7 @@ export const actions: Actions = {
 			secure: true,
 			sameSite: 'lax'
 		});
-		
+
 		cookies.set('sb-refresh-token', authData.session.refresh_token, {
 			path: '/',
 			maxAge: 60 * 60 * 24 * 30, // 30 days
@@ -90,7 +89,9 @@ export const actions: Actions = {
 		try {
 			const { data: authData, error } = await getOAuthSignInUrl(
 				provider,
-				redirectTo ? `${process.env.PUBLIC_APP_URL}/auth/callback?redirectTo=${encodeURIComponent(redirectTo)}` : undefined
+				redirectTo
+					? `${process.env.PUBLIC_APP_URL}/auth/callback?redirectTo=${encodeURIComponent(redirectTo)}`
+					: undefined
 			);
 
 			if (error || !authData.url) {
@@ -107,4 +108,4 @@ export const actions: Actions = {
 			});
 		}
 	}
-}; 
+};

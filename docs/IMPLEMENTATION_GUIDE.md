@@ -18,6 +18,7 @@ This guide provides detailed instructions for setting up and customizing the Sve
 ### 1. Prerequisites
 
 Ensure you have the following installed:
+
 - Node.js 18.x or higher
 - npm, pnpm, or yarn
 - Git
@@ -128,11 +129,11 @@ The template includes auth utilities in `src/lib/server/auth.ts`. Use them in yo
 import { requireAuth } from '$lib/server/auth';
 
 export async function load({ locals }) {
-  const session = await requireAuth(locals);
-  
-  return {
-    user: session.user
-  };
+	const session = await requireAuth(locals);
+
+	return {
+		user: session.user
+	};
 }
 ```
 
@@ -178,14 +179,14 @@ import { db } from '$lib/server/db';
 
 // Query example
 export async function getPosts() {
-  const { data, error } = await db
-    .from('posts')
-    .select('*')
-    .eq('published', true)
-    .order('created_at', { ascending: false });
-    
-  if (error) throw error;
-  return data;
+	const { data, error } = await db
+		.from('posts')
+		.select('*')
+		.eq('published', true)
+		.order('created_at', { ascending: false });
+
+	if (error) throw error;
+	return data;
 }
 ```
 
@@ -226,11 +227,11 @@ import { createCompletion } from '$lib/server/llm';
 
 export async function POST({ request }) {
   const { prompt } = await request.json();
-  
+
   const response = await createCompletion({
     messages: [{ role: 'user', content: prompt }]
   });
-  
+
   return json({ response });
 }
 ```
@@ -238,6 +239,7 @@ export async function POST({ request }) {
 ### 3. Available Models
 
 Popular models on OpenRouter:
+
 - `openai/gpt-4`
 - `openai/gpt-3.5-turbo`
 - `anthropic/claude-3-opus-20240229`
@@ -269,19 +271,19 @@ npx shadcn-svelte@latest add card dialog form input
 ```svelte
 <!-- src/routes/+page.svelte -->
 <script>
-  import { Button } from '$lib/components/ui/button';
-  import { Card } from '$lib/components/ui/card';
-  import { Input } from '$lib/components/ui/input';
+	import { Button } from '$lib/components/ui/button';
+	import { Card } from '$lib/components/ui/card';
+	import { Input } from '$lib/components/ui/input';
 </script>
 
 <Card.Root>
-  <Card.Header>
-    <Card.Title>Welcome</Card.Title>
-  </Card.Header>
-  <Card.Content>
-    <Input placeholder="Enter your name" />
-    <Button>Submit</Button>
-  </Card.Content>
+	<Card.Header>
+		<Card.Title>Welcome</Card.Title>
+	</Card.Header>
+	<Card.Content>
+		<Input placeholder="Enter your name" />
+		<Button>Submit</Button>
+	</Card.Content>
 </Card.Root>
 ```
 
@@ -291,19 +293,19 @@ Customize your theme in `src/app.css`:
 
 ```css
 @layer base {
-  :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
-    /* ... other variables */
-  }
-  
-  .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    /* ... dark mode variables */
-  }
+	:root {
+		--background: 0 0% 100%;
+		--foreground: 222.2 84% 4.9%;
+		--primary: 222.2 47.4% 11.2%;
+		--primary-foreground: 210 40% 98%;
+		/* ... other variables */
+	}
+
+	.dark {
+		--background: 222.2 84% 4.9%;
+		--foreground: 210 40% 98%;
+		/* ... dark mode variables */
+	}
 }
 ```
 
@@ -312,24 +314,27 @@ Customize your theme in `src/app.css`:
 ### Cloudflare Pages Deployment
 
 1. Install Cloudflare adapter:
+
 ```bash
 npm install -D @sveltejs/adapter-cloudflare
 ```
 
 2. Update `svelte.config.js`:
+
 ```javascript
 import adapter from '@sveltejs/adapter-cloudflare';
 
 export default {
-  kit: {
-    adapter: adapter()
-  }
+	kit: {
+		adapter: adapter()
+	}
 };
 ```
 
 3. Configure `wrangler.toml` (see deployment guide for details)
 
 4. Deploy:
+
 ```bash
 npm run build
 npx wrangler pages deploy ./build
@@ -360,6 +365,7 @@ src/
 Example: Adding a chat feature
 
 1. Create database schema:
+
 ```sql
 CREATE TABLE chat_messages (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -371,6 +377,7 @@ CREATE TABLE chat_messages (
 ```
 
 2. Create API endpoint:
+
 ```typescript
 // src/routes/api/chat/+server.ts
 import { json } from '@sveltejs/kit';
@@ -379,71 +386,73 @@ import { createCompletion } from '$lib/server/llm';
 import { db } from '$lib/server/db';
 
 export async function POST({ request, locals }) {
-  const session = await requireAuth(locals);
-  const { message } = await request.json();
-  
-  // Save user message
-  await db.from('chat_messages').insert({
-    user_id: session.user.id,
-    content: message,
-    role: 'user'
-  });
-  
-  // Get AI response
-  const response = await createCompletion({
-    messages: [{ role: 'user', content: message }]
-  });
-  
-  // Save AI response
-  await db.from('chat_messages').insert({
-    user_id: session.user.id,
-    content: response.content,
-    role: 'assistant'
-  });
-  
-  return json({ response: response.content });
+	const session = await requireAuth(locals);
+	const { message } = await request.json();
+
+	// Save user message
+	await db.from('chat_messages').insert({
+		user_id: session.user.id,
+		content: message,
+		role: 'user'
+	});
+
+	// Get AI response
+	const response = await createCompletion({
+		messages: [{ role: 'user', content: message }]
+	});
+
+	// Save AI response
+	await db.from('chat_messages').insert({
+		user_id: session.user.id,
+		content: response.content,
+		role: 'assistant'
+	});
+
+	return json({ response: response.content });
 }
 ```
 
 3. Create UI:
+
 ```svelte
 <!-- src/routes/chat/+page.svelte -->
 <script>
-  import { Button } from '$lib/components/ui/button';
-  import { Input } from '$lib/components/ui/input';
-  
-  let message = '';
-  let messages = [];
-  
-  async function sendMessage() {
-    const response = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message })
-    });
-    
-    const data = await response.json();
-    messages = [...messages, 
-      { role: 'user', content: message },
-      { role: 'assistant', content: data.response }
-    ];
-    message = '';
-  }
+	import { Button } from '$lib/components/ui/button';
+	import { Input } from '$lib/components/ui/input';
+
+	let message = '';
+	let messages = [];
+
+	async function sendMessage() {
+		const response = await fetch('/api/chat', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ message })
+		});
+
+		const data = await response.json();
+		messages = [
+			...messages,
+			{ role: 'user', content: message },
+			{ role: 'assistant', content: data.response }
+		];
+		message = '';
+	}
 </script>
 
-<div class="max-w-2xl mx-auto p-4">
-  <div class="space-y-4 mb-4">
-    {#each messages as msg}
-      <div class="p-3 rounded {msg.role === 'user' ? 'bg-blue-100' : 'bg-gray-100'}">
-        {msg.content}
-      </div>
-    {/each}
-  </div>
-  
-  <form on:submit|preventDefault={sendMessage} class="flex gap-2">
-    <Input bind:value={message} placeholder="Type a message..." />
-    <Button type="submit">Send</Button>
-  </form>
+<div class="mx-auto max-w-2xl p-4">
+	<div class="mb-4 space-y-4">
+		{#each messages as msg}
+			<div class="rounded p-3 {msg.role === 'user' ? 'bg-blue-100' : 'bg-gray-100'}">
+				{msg.content}
+			</div>
+		{/each}
+	</div>
+
+	<form on:submit|preventDefault={sendMessage} class="flex gap-2">
+		<Input bind:value={message} placeholder="Type a message..." />
+		<Button type="submit">Send</Button>
+	</form>
 </div>
 ```
 
@@ -514,4 +523,4 @@ export async function POST({ request, locals }) {
 4. Configure CI/CD pipelines
 5. Launch your application!
 
-Remember to remove any example code and customize the template to fit your specific needs. 
+Remember to remove any example code and customize the template to fit your specific needs.

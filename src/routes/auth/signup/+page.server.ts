@@ -82,7 +82,7 @@ export const actions: Actions = {
 			if (authData.session) {
 				// Set authentication cookies
 				setAuthCookies(event, authData.session);
-				
+
 				// Return success with redirect info instead of redirecting
 				return {
 					success: true,
@@ -120,7 +120,9 @@ export const actions: Actions = {
 		try {
 			const { data: authData, error } = await getOAuthSignInUrl(
 				provider,
-				redirectTo ? `${process.env.PUBLIC_APP_URL}/auth/callback?redirectTo=${encodeURIComponent(redirectTo)}` : undefined
+				redirectTo
+					? `${process.env.PUBLIC_APP_URL}/auth/callback?redirectTo=${encodeURIComponent(redirectTo)}`
+					: undefined
 			);
 
 			if (error || !authData.url) {
@@ -137,4 +139,4 @@ export const actions: Actions = {
 			});
 		}
 	}
-}; 
+};

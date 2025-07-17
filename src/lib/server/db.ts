@@ -19,9 +19,9 @@ export class QueryBuilder<T extends keyof Tables> {
 		columns: K[] | '*' = '*',
 		filters?: Partial<Tables[T]['Row']>
 	): Promise<Pick<Tables[T]['Row'], K>[]> {
-		let query = this.client.from(this.table).select(
-			Array.isArray(columns) ? columns.join(',') : columns
-		);
+		let query = this.client
+			.from(this.table)
+			.select(Array.isArray(columns) ? columns.join(',') : columns);
 
 		if (filters) {
 			Object.entries(filters).forEach(([key, value]) => {
@@ -32,7 +32,7 @@ export class QueryBuilder<T extends keyof Tables> {
 		}
 
 		const { data, error } = await query;
-		
+
 		if (error) {
 			throw new Error(`Database query failed: ${error.message}`);
 		}
@@ -43,9 +43,7 @@ export class QueryBuilder<T extends keyof Tables> {
 	/**
 	 * Insert new record
 	 */
-	async insert(
-		data: Tables[T]['Insert']
-	): Promise<Tables[T]['Row']> {
+	async insert(data: Tables[T]['Insert']): Promise<Tables[T]['Row']> {
 		const { data: result, error } = await this.client
 			.from(this.table)
 			.insert(data)
@@ -62,10 +60,7 @@ export class QueryBuilder<T extends keyof Tables> {
 	/**
 	 * Update existing record
 	 */
-	async update(
-		id: string,
-		data: Tables[T]['Update']
-	): Promise<Tables[T]['Row']> {
+	async update(id: string, data: Tables[T]['Update']): Promise<Tables[T]['Row']> {
 		const { data: result, error } = await this.client
 			.from(this.table)
 			.update(data)
@@ -84,10 +79,7 @@ export class QueryBuilder<T extends keyof Tables> {
 	 * Delete record
 	 */
 	async delete(id: string): Promise<void> {
-		const { error } = await this.client
-			.from(this.table)
-			.delete()
-			.eq('id', id);
+		const { error } = await this.client.from(this.table).delete().eq('id', id);
 
 		if (error) {
 			throw new Error(`Database delete failed: ${error.message}`);
@@ -98,9 +90,7 @@ export class QueryBuilder<T extends keyof Tables> {
 	 * Count records
 	 */
 	async count(filters?: Partial<Tables[T]['Row']>): Promise<number> {
-		let query = this.client
-			.from(this.table)
-			.select('id', { count: 'exact', head: true });
+		let query = this.client.from(this.table).select('id', { count: 'exact', head: true });
 
 		if (filters) {
 			Object.entries(filters).forEach(([key, value]) => {
@@ -131,10 +121,7 @@ export class QueryBuilder<T extends keyof Tables> {
 /**
  * Create a query builder for a specific table
  */
-export function createQueryBuilder<T extends keyof Tables>(
-	table: T,
-	useAdmin = false
-) {
+export function createQueryBuilder<T extends keyof Tables>(table: T, useAdmin = false) {
 	return new QueryBuilder(table, useAdmin ? supabaseAdmin : supabase);
 }
 
@@ -146,13 +133,10 @@ export const profiles = {
 	 * Get user profile by ID
 	 */
 	async getById(id: string): Promise<Profile | null> {
-		const { data, error } = await supabase
-			.from('profiles')
-			.select('*')
-			.eq('id', id)
-			.single();
+		const { data, error } = await supabase.from('profiles').select('*').eq('id', id).single();
 
-		if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
+		if (error && error.code !== 'PGRST116') {
+			// PGRST116 = no rows returned
 			throw new Error(`Failed to get profile: ${error.message}`);
 		}
 
@@ -180,11 +164,7 @@ export const profiles = {
 	 * Create user profile
 	 */
 	async create(profile: Tables['profiles']['Insert']): Promise<Profile> {
-		const { data, error } = await supabaseAdmin
-			.from('profiles')
-			.insert(profile)
-			.select()
-			.single();
+		const { data, error } = await supabaseAdmin.from('profiles').insert(profile).select().single();
 
 		if (error) {
 			throw new Error(`Failed to create profile: ${error.message}`);
@@ -196,10 +176,7 @@ export const profiles = {
 	/**
 	 * Update user profile
 	 */
-	async update(
-		id: string,
-		updates: Tables['profiles']['Update']
-	): Promise<Profile> {
+	async update(id: string, updates: Tables['profiles']['Update']): Promise<Profile> {
 		const { data, error } = await supabase
 			.from('profiles')
 			.update({
@@ -238,10 +215,7 @@ export const profiles = {
 	 * Check if username is available
 	 */
 	async isUsernameAvailable(username: string, excludeId?: string): Promise<boolean> {
-		let query = supabase
-			.from('profiles')
-			.select('id')
-			.eq('username', username);
+		let query = supabase.from('profiles').select('id').eq('username', username);
 
 		if (excludeId) {
 			query = query.neq('id', excludeId);
@@ -301,9 +275,7 @@ export async function getPaginated<T extends keyof Tables>(
 	const offset = (page - 1) * limit;
 
 	// Get total count
-	let countQuery = supabase
-		.from(table)
-		.select('id', { count: 'exact', head: true });
+	let countQuery = supabase.from(table).select('id', { count: 'exact', head: true });
 
 	if (filters) {
 		Object.entries(filters).forEach(([key, value]) => {
@@ -367,10 +339,7 @@ export const batch = {
 		table: T,
 		records: Tables[T]['Insert'][]
 	): Promise<Tables[T]['Row'][]> {
-		const { data, error } = await supabaseAdmin
-			.from(table)
-			.insert(records)
-			.select();
+		const { data, error } = await supabaseAdmin.from(table).insert(records).select();
 
 		if (error) {
 			throw new Error(`Batch insert failed: ${error.message}`);
@@ -387,14 +356,11 @@ export const batch = {
 		updates: { id: string; data: Tables[T]['Update'] }[]
 	): Promise<void> {
 		const promises = updates.map(({ id, data }) =>
-			supabaseAdmin
-				.from(table)
-				.update(data)
-				.eq('id', id)
+			supabaseAdmin.from(table).update(data).eq('id', id)
 		);
 
 		const results = await Promise.all(promises);
-		
+
 		for (const result of results) {
 			if (result.error) {
 				throw new Error(`Batch update failed: ${result.error.message}`);
@@ -405,14 +371,8 @@ export const batch = {
 	/**
 	 * Delete multiple records
 	 */
-	async delete<T extends keyof Tables>(
-		table: T,
-		ids: string[]
-	): Promise<void> {
-		const { error } = await supabaseAdmin
-			.from(table)
-			.delete()
-			.in('id', ids);
+	async delete<T extends keyof Tables>(table: T, ids: string[]): Promise<void> {
+		const { error } = await supabaseAdmin.from(table).delete().in('id', ids);
 
 		if (error) {
 			throw new Error(`Batch delete failed: ${error.message}`);
@@ -423,12 +383,10 @@ export const batch = {
 /**
  * Transaction helper (using Supabase RPC)
  */
-export async function transaction<T>(
-	operations: () => Promise<T>
-): Promise<T> {
+export async function transaction<T>(operations: () => Promise<T>): Promise<T> {
 	// Note: Supabase doesn't have built-in transactions for client libraries
 	// This is a placeholder for when you need to implement custom transaction logic
 	// You might need to use Postgres functions or handle rollbacks manually
-	
+
 	return await operations();
-} 
+}

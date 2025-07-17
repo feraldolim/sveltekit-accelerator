@@ -23,26 +23,22 @@ export const profile = writable<{
 } | null>(null);
 
 // Derived stores
-export const isAuthenticated: Readable<boolean> = derived(
-	user,
-	($user) => $user !== null
-);
+export const isAuthenticated: Readable<boolean> = derived(user, ($user) => $user !== null);
 
-export const isLoading: Readable<boolean> = derived(
-	loading,
-	($loading) => $loading
-);
+export const isLoading: Readable<boolean> = derived(loading, ($loading) => $loading);
 
 /**
  * Initialize auth state
  */
 export async function initializeAuth() {
 	loading.set(true);
-	
+
 	try {
 		// Get initial session
-		const { data: { session: initialSession } } = await supabase.auth.getSession();
-		
+		const {
+			data: { session: initialSession }
+		} = await supabase.auth.getSession();
+
 		if (initialSession) {
 			session.set(initialSession);
 			user.set(initialSession.user);
@@ -53,7 +49,7 @@ export async function initializeAuth() {
 		supabase.auth.onAuthStateChange(async (event, newSession) => {
 			session.set(newSession);
 			user.set(newSession?.user ?? null);
-			
+
 			if (newSession?.user) {
 				await loadUserProfile(newSession.user.id);
 			} else {
@@ -72,17 +68,13 @@ export async function initializeAuth() {
  */
 async function loadUserProfile(userId: string) {
 	try {
-		const { data, error } = await supabase
-			.from('profiles')
-			.select('*')
-			.eq('id', userId)
-			.single();
-		
+		const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
+
 		if (error && error.code !== 'PGRST116') {
 			console.error('Error loading profile:', error);
 			return;
 		}
-		
+
 		profile.set(data);
 	} catch (error) {
 		console.error('Error loading profile:', error);
@@ -94,15 +86,15 @@ async function loadUserProfile(userId: string) {
  */
 export async function signIn(email: string, password: string) {
 	loading.set(true);
-	
+
 	try {
 		const { data, error } = await supabase.auth.signInWithPassword({
 			email,
 			password
 		});
-		
+
 		if (error) throw error;
-		
+
 		return { data, error: null };
 	} catch (error) {
 		console.error('Sign in error:', error);
@@ -117,7 +109,7 @@ export async function signIn(email: string, password: string) {
  */
 export async function signUp(email: string, password: string, metadata?: Record<string, unknown>) {
 	loading.set(true);
-	
+
 	try {
 		const { data, error } = await supabase.auth.signUp({
 			email,
@@ -126,9 +118,9 @@ export async function signUp(email: string, password: string, metadata?: Record<
 				data: metadata || {}
 			}
 		});
-		
+
 		if (error) throw error;
-		
+
 		return { data, error: null };
 	} catch (error) {
 		console.error('Sign up error:', error);
@@ -143,7 +135,7 @@ export async function signUp(email: string, password: string, metadata?: Record<
  */
 export async function signInWithOAuth(provider: 'google' | 'github') {
 	loading.set(true);
-	
+
 	try {
 		const { data, error } = await supabase.auth.signInWithOAuth({
 			provider,
@@ -151,9 +143,9 @@ export async function signInWithOAuth(provider: 'google' | 'github') {
 				redirectTo: `${window.location.origin}/auth/callback`
 			}
 		});
-		
+
 		if (error) throw error;
-		
+
 		return { data, error: null };
 	} catch (error) {
 		console.error('OAuth sign in error:', error);
@@ -168,17 +160,17 @@ export async function signInWithOAuth(provider: 'google' | 'github') {
  */
 export async function signOut() {
 	loading.set(true);
-	
+
 	try {
 		const { error } = await supabase.auth.signOut();
-		
+
 		if (error) throw error;
-		
+
 		// Clear stores
 		user.set(null);
 		session.set(null);
 		profile.set(null);
-		
+
 		return { error: null };
 	} catch (error) {
 		console.error('Sign out error:', error);
@@ -197,9 +189,11 @@ export async function updateProfile(updates: {
 	avatar_url?: string;
 	bio?: string;
 }) {
-	const { data: { user: currentUser } } = await supabase.auth.getUser();
+	const {
+		data: { user: currentUser }
+	} = await supabase.auth.getUser();
 	if (!currentUser) throw new Error('No authenticated user');
-	
+
 	try {
 		const { data, error } = await supabase
 			.from('profiles')
@@ -210,9 +204,9 @@ export async function updateProfile(updates: {
 			.eq('id', currentUser.id)
 			.select()
 			.single();
-		
+
 		if (error) throw error;
-		
+
 		profile.set(data);
 		return { data, error: null };
 	} catch (error) {
@@ -229,9 +223,9 @@ export async function resetPassword(email: string) {
 		const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
 			redirectTo: `${window.location.origin}/auth/reset-password`
 		});
-		
+
 		if (error) throw error;
-		
+
 		return { data, error: null };
 	} catch (error) {
 		console.error('Password reset error:', error);
@@ -247,12 +241,12 @@ export async function updatePassword(password: string) {
 		const { data, error } = await supabase.auth.updateUser({
 			password
 		});
-		
+
 		if (error) throw error;
-		
+
 		return { data, error: null };
 	} catch (error) {
 		console.error('Password update error:', error);
 		return { data: null, error };
 	}
-} 
+}

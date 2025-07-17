@@ -27,16 +27,16 @@ import adapter from '@sveltejs/adapter-cloudflare';
 import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 
 const config = {
-  preprocess: vitePreprocess(),
-  kit: {
-    adapter: adapter({
-      // See below for options
-      routes: {
-        include: ['/*'],
-        exclude: ['<all>']
-      }
-    })
-  }
+	preprocess: vitePreprocess(),
+	kit: {
+		adapter: adapter({
+			// See below for options
+			routes: {
+				include: ['/*'],
+				exclude: ['<all>']
+			}
+		})
+	}
 };
 
 export default config;
@@ -52,11 +52,11 @@ Add deployment scripts to `package.json`:
 
 ```json
 {
-  "scripts": {
-    "deploy": "npm run build && wrangler pages deploy .svelte-kit/cloudflare",
-    "deploy:preview": "npm run build && wrangler pages deploy .svelte-kit/cloudflare --branch=preview",
-    "cf:login": "wrangler login"
-  }
+	"scripts": {
+		"deploy": "npm run build && wrangler pages deploy .svelte-kit/cloudflare",
+		"deploy:preview": "npm run build && wrangler pages deploy .svelte-kit/cloudflare --branch=preview",
+		"cf:login": "wrangler login"
+	}
 }
 ```
 
@@ -88,16 +88,19 @@ Add deployment scripts to `package.json`:
 ### Method 2: Direct Upload with Wrangler
 
 1. **Login to Cloudflare**
+
    ```bash
    npx wrangler login
    ```
 
 2. **Create Pages Project**
+
    ```bash
    npx wrangler pages project create sveltekit-accelerator
    ```
 
 3. **Deploy**
+
    ```bash
    # Production deployment
    npm run deploy
@@ -127,15 +130,15 @@ jobs:
       deployments: write
     steps:
       - uses: actions/checkout@v3
-      
+
       - uses: actions/setup-node@v3
         with:
           node-version: 18
           cache: 'npm'
-      
+
       - run: npm ci
       - run: npm run build
-      
+
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/pages-action@v1
         with:
@@ -196,11 +199,13 @@ JWT_SECRET=your-secret-key
 #### D1 Database (SQLite)
 
 1. Create database:
+
    ```bash
    npx wrangler d1 create sveltekit-accelerator-db
    ```
 
 2. Update `wrangler.toml`:
+
    ```toml
    [[d1_databases]]
    binding = "DB"
@@ -211,20 +216,22 @@ JWT_SECRET=your-secret-key
 3. Access in your app:
    ```typescript
    export async function load({ platform }) {
-     const db = platform?.env?.DB;
-     const result = await db?.prepare('SELECT * FROM users').all();
-     return { users: result?.results ?? [] };
+   	const db = platform?.env?.DB;
+   	const result = await db?.prepare('SELECT * FROM users').all();
+   	return { users: result?.results ?? [] };
    }
    ```
 
 #### R2 Storage
 
 1. Create bucket:
+
    ```bash
    npx wrangler r2 bucket create sveltekit-accelerator-storage
    ```
 
 2. Update `wrangler.toml`:
+
    ```toml
    [[r2_buckets]]
    binding = "STORAGE"
@@ -234,23 +241,25 @@ JWT_SECRET=your-secret-key
 3. Use in your app:
    ```typescript
    export async function POST({ request, platform }) {
-     const formData = await request.formData();
-     const file = formData.get('file') as File;
-     
-     await platform?.env?.STORAGE.put(file.name, file);
-     
-     return json({ success: true });
+   	const formData = await request.formData();
+   	const file = formData.get('file') as File;
+
+   	await platform?.env?.STORAGE.put(file.name, file);
+
+   	return json({ success: true });
    }
    ```
 
 #### KV Namespace (Key-Value Storage)
 
 1. Create namespace:
+
    ```bash
    npx wrangler kv:namespace create CACHE
    ```
 
 2. Update `wrangler.toml`:
+
    ```toml
    [[kv_namespaces]]
    binding = "CACHE"
@@ -260,18 +269,18 @@ JWT_SECRET=your-secret-key
 3. Use for caching:
    ```typescript
    export async function load({ platform, setHeaders }) {
-     const cache = platform?.env?.CACHE;
-     
-     const cached = await cache?.get('data', 'json');
-     if (cached) {
-       setHeaders({ 'cache-control': 'max-age=300' });
-       return cached;
-     }
-     
-     const data = await fetchData();
-     await cache?.put('data', JSON.stringify(data), { expirationTtl: 300 });
-     
-     return data;
+   	const cache = platform?.env?.CACHE;
+
+   	const cached = await cache?.get('data', 'json');
+   	if (cached) {
+   		setHeaders({ 'cache-control': 'max-age=300' });
+   		return cached;
+   	}
+
+   	const data = await fetchData();
+   	await cache?.put('data', JSON.stringify(data), { expirationTtl: 300 });
+
+   	return data;
    }
    ```
 
@@ -282,13 +291,14 @@ JWT_SECRET=your-secret-key
    - Enable JavaScript, CSS, and HTML minification
 
 2. **Configure Caching**
+
    ```typescript
    // In your routes
    export async function load({ setHeaders }) {
-     setHeaders({
-       'cache-control': 'public, max-age=3600',
-     });
-     // ...
+   	setHeaders({
+   		'cache-control': 'public, max-age=3600'
+   	});
+   	// ...
    }
    ```
 
@@ -307,7 +317,7 @@ JWT_SECRET=your-secret-key
 
 2. **Environment Variable Issues**
    - Ensure all required variables are set
-   - Use correct prefixes (PUBLIC_ for client-side)
+   - Use correct prefixes (PUBLIC\_ for client-side)
    - Check variable names match exactly
 
 3. **Function Size Limits**
@@ -323,6 +333,7 @@ JWT_SECRET=your-secret-key
 ### Debugging
 
 1. **Local Testing with Wrangler**
+
    ```bash
    npx wrangler pages dev .svelte-kit/cloudflare
    ```
@@ -342,10 +353,14 @@ JWT_SECRET=your-secret-key
    - Track page views, performance, and errors
 
 2. **Web Analytics**
+
    ```html
    <!-- Add to app.html -->
-   <script defer src='https://static.cloudflareinsights.com/beacon.min.js' 
-           data-cf-beacon='{"token": "your-token"}'></script>
+   <script
+   	defer
+   	src="https://static.cloudflareinsights.com/beacon.min.js"
+   	data-cf-beacon='{"token": "your-token"}'
+   ></script>
    ```
 
 3. **Error Tracking**
@@ -385,6 +400,7 @@ JWT_SECRET=your-secret-key
 5. Optimize for Core Web Vitals
 
 For more information, refer to:
+
 - [Cloudflare Pages Documentation](https://developers.cloudflare.com/pages/)
 - [SvelteKit Cloudflare Adapter](https://kit.svelte.dev/docs/adapter-cloudflare)
-- [Wrangler Documentation](https://developers.cloudflare.com/workers/wrangler/) 
+- [Wrangler Documentation](https://developers.cloudflare.com/workers/wrangler/)

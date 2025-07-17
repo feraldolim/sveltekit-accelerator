@@ -55,9 +55,7 @@ async function getAppliedMigrations(): Promise<Migration[]> {
  * Mark migration as applied
  */
 async function markMigrationAsApplied(migration: Omit<Migration, 'applied_at'>): Promise<void> {
-	const { error } = await supabaseAdmin
-		.from('migrations')
-		.insert([migration]);
+	const { error } = await supabaseAdmin.from('migrations').insert([migration]);
 
 	if (error) {
 		throw new Error(`Failed to mark migration as applied: ${error.message}`);
@@ -70,12 +68,12 @@ async function markMigrationAsApplied(migration: Omit<Migration, 'applied_at'>):
 async function runMigration(migrationPath: string): Promise<MigrationResult> {
 	try {
 		const sql = readFileSync(migrationPath, 'utf8');
-		
+
 		// Split SQL into individual statements
 		const statements = sql
 			.split(';')
-			.map(stmt => stmt.trim())
-			.filter(stmt => stmt.length > 0 && !stmt.startsWith('--'));
+			.map((stmt) => stmt.trim())
+			.filter((stmt) => stmt.length > 0 && !stmt.startsWith('--'));
 
 		// Execute each statement
 		for (const statement of statements) {
@@ -110,7 +108,7 @@ async function runMigration(migrationPath: string): Promise<MigrationResult> {
  */
 export async function getPendingMigrations(): Promise<Migration[]> {
 	const appliedMigrations = await getAppliedMigrations();
-	const appliedIds = new Set(appliedMigrations.map(m => m.id));
+	const appliedIds = new Set(appliedMigrations.map((m) => m.id));
 
 	// In a real implementation, you would scan the migrations directory
 	// For now, we'll return a hardcoded list
@@ -122,7 +120,7 @@ export async function getPendingMigrations(): Promise<Migration[]> {
 		}
 	];
 
-	return allMigrations.filter(m => !appliedIds.has(m.id));
+	return allMigrations.filter((m) => !appliedIds.has(m.id));
 }
 
 /**
@@ -134,7 +132,7 @@ export async function runPendingMigrations(): Promise<{
 }> {
 	try {
 		await createMigrationsTable();
-		
+
 		const pendingMigrations = await getPendingMigrations();
 		const results: { migration: Migration; result: MigrationResult }[] = [];
 
@@ -152,7 +150,7 @@ export async function runPendingMigrations(): Promise<{
 			}
 		}
 
-		const allSuccessful = results.every(r => r.result.success);
+		const allSuccessful = results.every((r) => r.result.success);
 
 		return {
 			success: allSuccessful,
@@ -161,14 +159,16 @@ export async function runPendingMigrations(): Promise<{
 	} catch (error) {
 		return {
 			success: false,
-			results: [{
-				migration: { id: 'unknown', name: 'Unknown', filename: 'unknown' },
-				result: {
-					success: false,
-					message: 'Failed to run migrations',
-					error: error instanceof Error ? error.message : String(error)
+			results: [
+				{
+					migration: { id: 'unknown', name: 'Unknown', filename: 'unknown' },
+					result: {
+						success: false,
+						message: 'Failed to run migrations',
+						error: error instanceof Error ? error.message : String(error)
+					}
 				}
-			}]
+			]
 		};
 	}
 }
@@ -220,10 +220,7 @@ export async function validateSchema(): Promise<{
 		];
 
 		for (const table of requiredTables) {
-			const { data, error } = await supabaseAdmin
-				.from(table)
-				.select('*')
-				.limit(1);
+			const { data, error } = await supabaseAdmin.from(table).select('*').limit(1);
 
 			if (error) {
 				issues.push(`Table '${table}' is missing or inaccessible: ${error.message}`);
@@ -231,8 +228,7 @@ export async function validateSchema(): Promise<{
 		}
 
 		// Check RLS policies
-		const { data: policies, error: policiesError } = await supabaseAdmin
-			.rpc('get_policies');
+		const { data: policies, error: policiesError } = await supabaseAdmin.rpc('get_policies');
 
 		if (policiesError) {
 			issues.push(`Failed to check RLS policies: ${policiesError.message}`);
@@ -247,7 +243,9 @@ export async function validateSchema(): Promise<{
 	} catch (error) {
 		return {
 			valid: false,
-			issues: [`Schema validation failed: ${error instanceof Error ? error.message : String(error)}`]
+			issues: [
+				`Schema validation failed: ${error instanceof Error ? error.message : String(error)}`
+			]
 		};
 	}
 }
@@ -270,8 +268,7 @@ export async function createBackup(): Promise<{
 		let totalSize = 0;
 
 		// Get table information
-		const { data: tableStats, error } = await supabaseAdmin
-			.rpc('get_table_stats');
+		const { data: tableStats, error } = await supabaseAdmin.rpc('get_table_stats');
 
 		if (error) {
 			return {
