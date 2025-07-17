@@ -25,7 +25,7 @@ Before you begin, ensure you have the following installed:
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/sveltekit-accelerator.git
+   git clone https://github.com/feraldolim/sveltekit-accelerator.git
    cd sveltekit-accelerator
    ```
 
@@ -87,7 +87,6 @@ sveltekit-accelerator/
 │   ├── routes/             # SvelteKit routes
 │   └── app.html            # App template
 ├── static/                 # Static assets
-├── .cursor/                # Cursor IDE rules
 ├── wrangler.toml          # Cloudflare configuration
 └── package.json           # Dependencies
 ```
