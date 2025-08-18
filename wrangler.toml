@@ -5,10 +5,8 @@ pages_build_output_dir = ".svelte-kit/cloudflare"
 # Node.js compatibility for server-side modules
 compatibility_flags = ["nodejs_compat"]
 
-# Environment variables (these will be overridden by dashboard settings)
-[vars]
-PUBLIC_APP_NAME = "SvelteKit Accelerator"
-PUBLIC_APP_URL = "https://sveltekit-accelerator.pages.dev"
+# Note: Environment variables should be set in Cloudflare Pages dashboard
+# Don't define PUBLIC_APP_URL here as it conflicts with Pages environment variables
 
 # Note: This project uses Supabase for database and storage
 # All database operations go through Supabase, not Cloudflare D1
@@ -30,17 +28,4 @@ PUBLIC_APP_URL = "https://sveltekit-accelerator.pages.dev"
 # routes = [
 #   { pattern = "yourdomain.com", custom_domain = true },
 #   { pattern = "www.yourdomain.com", custom_domain = true }
-# ]
-
-# Development settings
-[dev]
-port = 5173
-local_protocol = "http"
-
-# Preview deployments
-[env.preview]
-vars = { PUBLIC_APP_URL = "https://preview.sveltekit-accelerator.pages.dev" }
-
-# Production deployments
-[env.production]
-vars = { PUBLIC_APP_URL = "https://sveltekit-accelerator.pages.dev" } 
+# ] 
