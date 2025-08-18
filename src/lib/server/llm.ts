@@ -1,7 +1,8 @@
 import { OPENROUTER_API_KEY, OPENROUTER_DEFAULT_MODEL } from '$env/static/private';
 
+// OPENROUTER_API_KEY is now optional since users can provide their own
 if (!OPENROUTER_API_KEY) {
-	throw new Error('OPENROUTER_API_KEY is required');
+	console.warn('OPENROUTER_API_KEY not configured - users must provide their own API keys');
 }
 
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
@@ -21,6 +22,7 @@ export interface CompletionRequest {
 	frequency_penalty?: number;
 	presence_penalty?: number;
 	stream?: boolean;
+	apiKey?: string; // Allow custom API key
 }
 
 export interface CompletionResponse {
@@ -59,16 +61,26 @@ export interface StreamChunk {
  * Create a completion using OpenRouter API
  */
 export async function createCompletion(request: CompletionRequest): Promise<CompletionResponse> {
+	// Use custom API key if provided, otherwise fall back to server API key
+	const apiKey = request.apiKey || OPENROUTER_API_KEY;
+	
+	if (!apiKey) {
+		throw new Error('No API key provided. Please set OPENROUTER_API_KEY environment variable or provide an API key in the request.');
+	}
+	
+	// Remove apiKey from request object to avoid sending it in the body
+	const { apiKey: _, ...requestBody } = request;
+	
 	const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
 		method: 'POST',
 		headers: {
-			Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+			Authorization: `Bearer ${apiKey}`,
 			'Content-Type': 'application/json',
 			'HTTP-Referer': process.env.PUBLIC_APP_URL || 'http://localhost:5173',
 			'X-Title': 'SvelteKit Accelerator'
 		},
 		body: JSON.stringify({
-			...request,
+			...requestBody,
 			model: request.model || DEFAULT_MODEL,
 			stream: false
 		})
@@ -86,16 +98,26 @@ export async function createCompletion(request: CompletionRequest): Promise<Comp
  * Create a streaming completion using OpenRouter API
  */
 export async function createCompletionStream(request: CompletionRequest): Promise<ReadableStream> {
+	// Use custom API key if provided, otherwise fall back to server API key
+	const apiKey = request.apiKey || OPENROUTER_API_KEY;
+	
+	if (!apiKey) {
+		throw new Error('No API key provided. Please set OPENROUTER_API_KEY environment variable or provide an API key in the request.');
+	}
+	
+	// Remove apiKey from request object to avoid sending it in the body
+	const { apiKey: _, ...requestBody } = request;
+	
 	const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
 		method: 'POST',
 		headers: {
-			Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+			Authorization: `Bearer ${apiKey}`,
 			'Content-Type': 'application/json',
 			'HTTP-Referer': process.env.PUBLIC_APP_URL || 'http://localhost:5173',
 			'X-Title': 'SvelteKit Accelerator'
 		},
 		body: JSON.stringify({
-			...request,
+			...requestBody,
 			model: request.model || DEFAULT_MODEL,
 			stream: true
 		})

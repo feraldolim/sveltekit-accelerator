@@ -20,6 +20,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			error(401, 'Authentication required');
 		}
 
+		// Get user-provided API key from headers
+		const userApiKey = request.headers.get('x-openrouter-api-key');
+
 		const { 
 			messages, 
 			model, 
@@ -90,7 +93,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			model: model || 'moonshotai/kimi-k2:free',
 			temperature,
 			max_tokens,
-			stream
+			stream,
+			...(userApiKey && { apiKey: userApiKey })
 		};
 
 		// Handle streaming response

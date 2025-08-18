@@ -3,12 +3,14 @@
 	import { marked } from 'marked';
 	import { Button } from '$lib/components/ui/button';
 	import { Textarea } from '$lib/components/ui/textarea';
+	import { Input } from '$lib/components/ui/input';
 	import * as Card from '$lib/components/ui/card/index.js';
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import * as Select from '$lib/components/ui/select/index.js';
+	import * as Alert from '$lib/components/ui/alert/index.js';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Label } from '$lib/components/ui/label';
-	import { Send, Bot, User, Settings, RotateCcw, Sparkles, Copy, Check } from 'lucide-svelte';
+	import { Send, Bot, User, Settings, RotateCcw, Sparkles, Copy, Check, Key, AlertTriangle } from 'lucide-svelte';
 	import { toast } from 'svelte-sonner';
 	import type { PageData } from './$types';
 
@@ -38,6 +40,11 @@
 	let maxTokens = $state(2000);
 	let streamResponse = $state(true);
 
+	// API Key management
+	let userApiKey = $state('');
+	let showApiKeyDialog = $state(false);
+	let apiKeyTestResult = $state<'idle' | 'testing' | 'success' | 'error'>('idle');
+
 	const availableModels = $derived((data.models || []) as Array<{id: string, name?: string}>);
 	
 	const triggerContent = $derived(
@@ -58,7 +65,64 @@
 		if (messageInput && messageInput.focus) {
 			messageInput.focus();
 		}
+
+		// Load saved API key from localStorage
+		const savedApiKey = localStorage.getItem('openrouter-api-key');
+		if (savedApiKey) {
+			userApiKey = savedApiKey;
+		}
 	});
+
+	// Save API key to localStorage when it changes
+	$effect(() => {
+		if (userApiKey) {
+			localStorage.setItem('openrouter-api-key', userApiKey);
+		} else {
+			localStorage.removeItem('openrouter-api-key');
+		}
+	});
+
+	// Test API key validity
+	async function testApiKey() {
+		if (!userApiKey.trim()) {
+			toast.error('Please enter an API key');
+			return;
+		}
+
+		apiKeyTestResult = 'testing';
+
+		try {
+			const response = await fetch('/api/chat', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'X-OpenRouter-API-Key': userApiKey.trim()
+				},
+				body: JSON.stringify({
+					messages: [{ role: 'user', content: 'Hello' }],
+					model: 'openai/gpt-3.5-turbo',
+					max_tokens: 1
+				})
+			});
+
+			if (response.ok) {
+				apiKeyTestResult = 'success';
+				toast.success('API key is valid');
+			} else {
+				apiKeyTestResult = 'error';
+				const errorText = await response.text();
+				toast.error(`Invalid API key: ${errorText}`);
+			}
+		} catch (error) {
+			apiKeyTestResult = 'error';
+			toast.error('Failed to test API key');
+		}
+
+		// Reset test result after 3 seconds
+		setTimeout(() => {
+			apiKeyTestResult = 'idle';
+		}, 3000);
+	}
 
 	// Start a new chat session
 	function startNewChat() {
@@ -82,6 +146,13 @@
 
 	async function sendMessage() {
 		if (!currentMessage.trim() || isLoading) return;
+
+		// Check if API key is provided
+		if (!userApiKey.trim()) {
+			showApiKeyDialog = true;
+			toast.error('Please provide your OpenRouter API key to use the chat');
+			return;
+		}
 
 		const userMessage: Message = {
 			id: crypto.randomUUID(),
@@ -130,11 +201,18 @@
 	}
 
 	async function handleStreamingResponse(apiMessages: unknown[]) {
+		const headers: Record<string, string> = {
+			'Content-Type': 'application/json'
+		};
+
+		// Add API key if provided
+		if (userApiKey.trim()) {
+			headers['X-OpenRouter-API-Key'] = userApiKey.trim();
+		}
+
 		const response = await fetch('/api/chat', {
 			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json'
-			},
+			headers,
 			body: JSON.stringify({
 				messages: apiMessages,
 				model: selectedModel,
@@ -208,11 +286,18 @@
 	}
 
 	async function handleRegularResponse(apiMessages: unknown[]) {
+		const headers: Record<string, string> = {
+			'Content-Type': 'application/json'
+		};
+
+		// Add API key if provided
+		if (userApiKey.trim()) {
+			headers['X-OpenRouter-API-Key'] = userApiKey.trim();
+		}
+
 		const response = await fetch('/api/chat', {
 			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json'
-			},
+			headers,
 			body: JSON.stringify({
 				messages: apiMessages,
 				model: selectedModel,
@@ -352,6 +437,64 @@
 		</Dialog.Content>
 	</Dialog.Root>
 
+	<!-- API Key Dialog -->
+	<Dialog.Root bind:open={showApiKeyDialog}>
+		<Dialog.Content class="sm:max-w-md">
+			<Dialog.Header>
+				<Dialog.Title class="flex items-center gap-2">
+					<Key class="h-5 w-5" />
+					OpenRouter API Key
+				</Dialog.Title>
+				<Dialog.Description>
+					Enter your OpenRouter API key to use the chat. Get your key from <a href="https://openrouter.ai/keys" target="_blank" class="text-primary underline">openrouter.ai/keys</a>
+				</Dialog.Description>
+			</Dialog.Header>
+			<div class="space-y-4">
+				<div>
+					<Label for="api-key">API Key</Label>
+					<Input
+						id="api-key"
+						type="password"
+						bind:value={userApiKey}
+						placeholder="sk-or-v1-..."
+						class="mt-2"
+					/>
+					<p class="text-xs text-muted-foreground mt-1">
+						Your API key is stored locally in your browser and never sent to our servers
+					</p>
+				</div>
+				
+				<div class="flex gap-2">
+					<Button 
+						variant="outline" 
+						onclick={testApiKey} 
+						disabled={!userApiKey.trim() || apiKeyTestResult === 'testing'}
+						class="flex-1"
+					>
+						{#if apiKeyTestResult === 'testing'}
+							Testing...
+						{:else if apiKeyTestResult === 'success'}
+							<Check class="h-4 w-4 mr-2" />
+							Valid
+						{:else if apiKeyTestResult === 'error'}
+							<AlertTriangle class="h-4 w-4 mr-2" />
+							Invalid
+						{:else}
+							Test Key
+						{/if}
+					</Button>
+					<Button 
+						onclick={() => showApiKeyDialog = false} 
+						disabled={!userApiKey.trim()}
+						class="flex-1"
+					>
+						Save
+					</Button>
+				</div>
+			</div>
+		</Dialog.Content>
+	</Dialog.Root>
+
 	<!-- Header -->
 	<div class="mb-6 flex items-center justify-between">
 		<div class="flex items-center space-x-3">
@@ -366,6 +509,9 @@
 			</div>
 		</div>
 		<div class="flex items-center space-x-2">
+			<Button variant="outline" size="sm" onclick={() => (showApiKeyDialog = true)}>
+				<Key class="h-4 w-4" />
+			</Button>
 			<Button variant="outline" size="sm" onclick={() => (showSettings = true)}>
 				<Settings class="h-4 w-4" />
 			</Button>
@@ -374,6 +520,23 @@
 			</Button>
 		</div>
 	</div>
+
+	<!-- API Key Warning -->
+	{#if !userApiKey.trim()}
+		<div class="mb-4">
+			<Alert.Root class="border-orange-200 bg-orange-50 dark:border-orange-900 dark:bg-orange-950">
+				<AlertTriangle class="h-4 w-4" />
+				<Alert.Title>API Key Required</Alert.Title>
+				<Alert.Description class="flex items-center justify-between">
+					<span>You need to provide your own OpenRouter API key to use the chat.</span>
+					<Button size="sm" onclick={() => showApiKeyDialog = true} class="ml-4">
+						<Key class="h-4 w-4 mr-2" />
+						Set API Key
+					</Button>
+				</Alert.Description>
+			</Alert.Root>
+		</div>
+	{/if}
 
 	<!-- Chat Area -->
 	<div class="flex h-[calc(100%-8rem)] flex-col">

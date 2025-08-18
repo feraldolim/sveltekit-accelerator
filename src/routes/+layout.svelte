@@ -18,7 +18,7 @@
 	}
 </script>
 
-<div class="bg-background min-h-screen">
+<div class="bg-background flex min-h-screen flex-col">
 	<!-- Navigation -->
 	<header
 		class="border-border bg-background/95 supports-[backdrop-filter]:bg-background/60 border-b backdrop-blur"
@@ -193,7 +193,7 @@
 	</header>
 
 	<!-- Main Content -->
-	<main>
+	<main class="flex-grow">
 		{@render children()}
 	</main>
 
@@ -271,7 +271,7 @@
 				</p>
 				<div class="mt-4 flex items-center space-x-4 sm:mt-0">
 					<a
-						href="https://github.com/yourusername/sveltekit-accelerator"
+						href="https://github.com/feraldolim/sveltekit-accelerator"
 						class="text-muted-foreground hover:text-foreground"
 					>
 						<span class="sr-only">GitHub</span>
