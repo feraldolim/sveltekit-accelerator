@@ -1,6 +1,4 @@
 import { supabaseAdmin } from './supabase.js';
-import { readFileSync } from 'fs';
-import { join } from 'path';
 
 interface Migration {
 	id: string;
@@ -63,12 +61,10 @@ async function markMigrationAsApplied(migration: Omit<Migration, 'applied_at'>):
 }
 
 /**
- * Run a single migration
+ * Run a single migration from SQL content
  */
-async function runMigration(migrationPath: string): Promise<MigrationResult> {
+async function runMigration(sql: string): Promise<MigrationResult> {
 	try {
-		const sql = readFileSync(migrationPath, 'utf8');
-
 		// Split SQL into individual statements
 		const statements = sql
 			.split(';')
@@ -97,11 +93,128 @@ async function runMigration(migrationPath: string): Promise<MigrationResult> {
 	} catch (error) {
 		return {
 			success: false,
-			message: 'Failed to read or execute migration',
+			message: 'Failed to execute migration',
 			error: error instanceof Error ? error.message : String(error)
 		};
 	}
 }
+
+/**
+ * Migration definitions with embedded SQL
+ * In Cloudflare Edge runtime, we can't read files from filesystem
+ */
+const MIGRATION_DEFINITIONS: { [key: string]: { migration: Migration; sql: string } } = {
+	'001': {
+		migration: {
+			id: '001',
+			name: 'Initial schema',
+			filename: '001_initial_schema.sql'
+		},
+		sql: `
+			-- Create profiles table
+			CREATE TABLE IF NOT EXISTS profiles (
+				id UUID REFERENCES auth.users(id) PRIMARY KEY,
+				username TEXT UNIQUE,
+				full_name TEXT,
+				avatar_url TEXT,
+				bio TEXT,
+				created_at TIMESTAMPTZ DEFAULT NOW(),
+				updated_at TIMESTAMPTZ DEFAULT NOW()
+			);
+
+			-- Create chats table
+			CREATE TABLE IF NOT EXISTS chats (
+				id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+				user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+				title TEXT NOT NULL,
+				created_at TIMESTAMPTZ DEFAULT NOW(),
+				updated_at TIMESTAMPTZ DEFAULT NOW()
+			);
+
+			-- Create messages table
+			CREATE TABLE IF NOT EXISTS messages (
+				id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+				chat_id UUID REFERENCES chats(id) ON DELETE CASCADE,
+				role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
+				content TEXT NOT NULL,
+				created_at TIMESTAMPTZ DEFAULT NOW()
+			);
+
+			-- Create user_activity table
+			CREATE TABLE IF NOT EXISTS user_activity (
+				id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+				user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+				action TEXT NOT NULL,
+				details JSONB,
+				ip_address INET,
+				user_agent TEXT,
+				created_at TIMESTAMPTZ DEFAULT NOW()
+			);
+
+			-- Create api_usage table
+			CREATE TABLE IF NOT EXISTS api_usage (
+				id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+				user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+				endpoint TEXT NOT NULL,
+				method TEXT NOT NULL,
+				model TEXT,
+				tokens_used INTEGER,
+				response_time INTEGER,
+				status_code INTEGER,
+				error_message TEXT,
+				created_at TIMESTAMPTZ DEFAULT NOW()
+			);
+
+			-- Create storage_usage table
+			CREATE TABLE IF NOT EXISTS storage_usage (
+				id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+				user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+				bucket TEXT NOT NULL,
+				file_path TEXT NOT NULL,
+				file_size BIGINT NOT NULL,
+				mime_type TEXT,
+				deleted_at TIMESTAMPTZ,
+				created_at TIMESTAMPTZ DEFAULT NOW()
+			);
+
+			-- Enable RLS
+			ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+			ALTER TABLE chats ENABLE ROW LEVEL SECURITY;
+			ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
+			ALTER TABLE user_activity ENABLE ROW LEVEL SECURITY;
+			ALTER TABLE api_usage ENABLE ROW LEVEL SECURITY;
+			ALTER TABLE storage_usage ENABLE ROW LEVEL SECURITY;
+
+			-- Create RLS policies
+			CREATE POLICY "Users can view own profile" ON profiles FOR SELECT USING (auth.uid() = id);
+			CREATE POLICY "Users can update own profile" ON profiles FOR UPDATE USING (auth.uid() = id);
+			CREATE POLICY "Users can insert own profile" ON profiles FOR INSERT WITH CHECK (auth.uid() = id);
+
+			CREATE POLICY "Users can view own chats" ON chats FOR SELECT USING (auth.uid() = user_id);
+			CREATE POLICY "Users can create own chats" ON chats FOR INSERT WITH CHECK (auth.uid() = user_id);
+			CREATE POLICY "Users can update own chats" ON chats FOR UPDATE USING (auth.uid() = user_id);
+			CREATE POLICY "Users can delete own chats" ON chats FOR DELETE USING (auth.uid() = user_id);
+
+			CREATE POLICY "Users can view own messages" ON messages FOR SELECT USING (
+				auth.uid() IN (SELECT user_id FROM chats WHERE id = chat_id)
+			);
+			CREATE POLICY "Users can create messages in own chats" ON messages FOR INSERT WITH CHECK (
+				auth.uid() IN (SELECT user_id FROM chats WHERE id = chat_id)
+			);
+
+			CREATE POLICY "Users can view own activity" ON user_activity FOR SELECT USING (auth.uid() = user_id);
+			CREATE POLICY "Users can view own api usage" ON api_usage FOR SELECT USING (auth.uid() = user_id);
+			CREATE POLICY "Users can view own storage usage" ON storage_usage FOR SELECT USING (auth.uid() = user_id);
+
+			-- Create indexes
+			CREATE INDEX IF NOT EXISTS idx_chats_user_id ON chats(user_id);
+			CREATE INDEX IF NOT EXISTS idx_messages_chat_id ON messages(chat_id);
+			CREATE INDEX IF NOT EXISTS idx_user_activity_user_id ON user_activity(user_id);
+			CREATE INDEX IF NOT EXISTS idx_api_usage_user_id ON api_usage(user_id);
+			CREATE INDEX IF NOT EXISTS idx_storage_usage_user_id ON storage_usage(user_id);
+		`
+	}
+};
 
 /**
  * Get list of pending migrations
@@ -110,16 +223,7 @@ export async function getPendingMigrations(): Promise<Migration[]> {
 	const appliedMigrations = await getAppliedMigrations();
 	const appliedIds = new Set(appliedMigrations.map((m) => m.id));
 
-	// In a real implementation, you would scan the migrations directory
-	// For now, we'll return a hardcoded list
-	const allMigrations: Migration[] = [
-		{
-			id: '001',
-			name: 'Initial schema',
-			filename: '001_initial_schema.sql'
-		}
-	];
-
+	const allMigrations = Object.values(MIGRATION_DEFINITIONS).map(def => def.migration);
 	return allMigrations.filter((m) => !appliedIds.has(m.id));
 }
 
@@ -137,9 +241,19 @@ export async function runPendingMigrations(): Promise<{
 		const results: { migration: Migration; result: MigrationResult }[] = [];
 
 		for (const migration of pendingMigrations) {
-			const migrationPath = join(process.cwd(), 'migrations', migration.filename);
-			const result = await runMigration(migrationPath);
+			const migrationDef = MIGRATION_DEFINITIONS[migration.id];
+			if (!migrationDef) {
+				results.push({
+					migration,
+					result: {
+						success: false,
+						message: `Migration definition not found for ${migration.id}`
+					}
+				});
+				break;
+			}
 
+			const result = await runMigration(migrationDef.sql);
 			results.push({ migration, result });
 
 			if (result.success) {

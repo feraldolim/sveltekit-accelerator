@@ -75,8 +75,8 @@ PUBLIC_APP_URL=http://localhost:5173
 
 ## 📚 Documentation
 
+- [Cloudflare Deployment Guide](./docs/CLOUDFLARE_DEPLOYMENT.md) - Complete Cloudflare Pages setup instructions
 - [Implementation Guide](./docs/IMPLEMENTATION_GUIDE.md) - Detailed setup and customization instructions
-- [Deployment Guide](./docs/DEPLOYMENT.md) - Instructions for deploying to Cloudflare Pages
 - [API Documentation](./docs/API.md) - API endpoints and usage
 - [Component Library](./docs/COMPONENTS.md) - Available UI components
 
@@ -99,13 +99,27 @@ sveltekit-accelerator/
 
 ## 🚀 Deployment
 
-This template is configured for easy deployment to Cloudflare Pages. See the [Deployment Guide](./docs/DEPLOYMENT.md) for detailed instructions.
+This template is configured for easy deployment to Cloudflare Pages. See the [Cloudflare Deployment Guide](./docs/CLOUDFLARE_DEPLOYMENT.md) for complete setup instructions.
 
-Quick deploy:
+### Cloudflare Pages (Recommended)
 
+**Dashboard Setup:**
+1. Connect your repository in Cloudflare Pages dashboard
+2. Set build command: `npm run build`
+3. Set build output: `.svelte-kit/cloudflare`
+4. Configure environment variables
+5. Deploy automatically on git push
+
+**CLI Deployment:**
 ```bash
-npm run build
-npx wrangler pages deploy ./build
+# Login to Cloudflare
+npm run cf:login
+
+# Deploy to production
+npm run deploy
+
+# Deploy preview
+npm run deploy:preview
 ```
 
 ## 🤝 Contributing

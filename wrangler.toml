@@ -1,30 +1,24 @@
-name = "sveltekit-accelerator"
+name = "sk-accelerator"
 compatibility_date = "2024-01-01"
+pages_build_output_dir = ".svelte-kit/cloudflare"
 
-# Build configuration
-[build]
-command = "npm run build"
+# Node.js compatibility for server-side modules
+compatibility_flags = ["nodejs_compat"]
 
 # Environment variables (these will be overridden by dashboard settings)
 [vars]
 PUBLIC_APP_NAME = "SvelteKit Accelerator"
 PUBLIC_APP_URL = "https://sveltekit-accelerator.pages.dev"
 
-# Pages configuration
-[[d1_databases]]
-binding = "DB" # Available in your app as env.DB
-database_name = "sveltekit-accelerator-db"
-database_id = "your-database-id" # Replace with actual D1 database ID
+# Note: This project uses Supabase for database and storage
+# All database operations go through Supabase, not Cloudflare D1
+# File storage uses Supabase Storage, not R2
 
-# R2 storage bucket for file uploads (optional)
-[[r2_buckets]]
-binding = "STORAGE"
-bucket_name = "sveltekit-accelerator-storage"
-
-# KV namespace for caching (optional)
-[[kv_namespaces]]
-binding = "CACHE"
-id = "your-kv-namespace-id" # Replace with actual KV namespace ID
+# R2 storage bucket for file uploads (optional - currently using Supabase Storage)
+# Uncomment if you want to use R2 in addition to or instead of Supabase Storage
+# [[r2_buckets]]
+# binding = "STORAGE"
+# bucket_name = "sveltekit-accelerator-storage"
 
 # Durable Objects (optional, for real-time features)
 # [[durable_objects.bindings]]

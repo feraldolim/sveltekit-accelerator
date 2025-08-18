@@ -8,8 +8,12 @@ import {
 	type ChatMessage
 } from '$lib/server/llm.js';
 import { addMessage, createChat, updateChatTitle } from '$lib/server/chats.js';
+import { createApiTracker, trackUserActivity } from '$lib/server/analytics.js';
 
 export const POST: RequestHandler = async ({ request, locals }) => {
+	const startTime = Date.now();
+	const tracker = createApiTracker({ request, locals } as any, startTime);
+	
 	try {
 		// Require authentication
 		if (!locals.session || !locals.user) {
@@ -154,6 +158,25 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			);
 		}
 
+		// Track API usage
+		await tracker.track({
+			userId: locals.user.id,
+			model: model || 'moonshotai/kimi-k2:free',
+			tokensUsed: completion.usage?.total_tokens,
+			statusCode: 200
+		});
+
+		// Track user activity
+		await trackUserActivity({
+			user_id: locals.user.id,
+			action: 'chat_completion',
+			details: {
+				chat_id: currentChatId,
+				model: model || 'moonshotai/kimi-k2:free',
+				tokens: completion.usage?.total_tokens
+			}
+		});
+
 		return json({
 			id: completion.id,
 			object: completion.object,
@@ -165,6 +188,16 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		});
 	} catch (err) {
 		console.error('Chat API error:', err);
+		
+		// Track error
+		if (locals.user?.id) {
+			await tracker.track({
+				userId: locals.user.id,
+				model: model || 'moonshotai/kimi-k2:free',
+				statusCode: 500,
+				error: err instanceof Error ? err.message : 'Unknown error'
+			});
+		}
 
 		if (err instanceof Error) {
 			// Handle specific errors
