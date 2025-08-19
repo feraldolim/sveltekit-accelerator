@@ -290,7 +290,8 @@ export async function runPendingMigrations(): Promise<{
 /**
  * Rollback a migration (placeholder for future implementation)
  */
-export async function rollbackMigration(migrationId: string): Promise<MigrationResult> {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export async function rollbackMigration(_migrationId: string): Promise<MigrationResult> {
 	// This would require storing rollback SQL or implementing reverse operations
 	// For now, just return not implemented
 	return {
@@ -334,7 +335,7 @@ export async function validateSchema(): Promise<{
 		];
 
 		for (const table of requiredTables) {
-			const { data, error } = await supabaseAdmin.from(table).select('*').limit(1);
+			const { error } = await supabaseAdmin.from(table).select('*').limit(1);
 
 			if (error) {
 				issues.push(`Table '${table}' is missing or inaccessible: ${error.message}`);
@@ -342,7 +343,7 @@ export async function validateSchema(): Promise<{
 		}
 
 		// Check RLS policies
-		const { data: policies, error: policiesError } = await supabaseAdmin.rpc('get_policies');
+		const { error: policiesError } = await supabaseAdmin.rpc('get_policies');
 
 		if (policiesError) {
 			issues.push(`Failed to check RLS policies: ${policiesError.message}`);

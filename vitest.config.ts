@@ -5,7 +5,7 @@ export default defineConfig({
 	plugins: [sveltekit()],
 	test: {
 		include: ['src/**/*.{test,spec}.{js,ts}'],
-		environment: 'jsdom',
+		environment: 'happy-dom',
 		setupFiles: ['./src/test/setup.ts'],
 		globals: true,
 		pool: 'forks',
@@ -14,5 +14,13 @@ export default defineConfig({
 				singleFork: true
 			}
 		}
+	},
+	define: {
+		// Force browser mode for all tests
+		'import.meta.env.SSR': false,
+		'process.env.NODE_ENV': '"test"'
+	},
+	resolve: {
+		conditions: ['browser']
 	}
 });

@@ -2,7 +2,10 @@
 	import '../app.css';
 	import { page } from '$app/stores';
 	import { Button } from '$lib/components/ui/button';
-	import { Menu, X, User, LogOut, Settings } from 'lucide-svelte';
+	import { Badge } from '$lib/components/ui/badge';
+	import * as Popover from '$lib/components/ui/popover';
+	import { Toaster } from '$lib/components/ui/sonner';
+	import { Menu, X, User, LogOut, Settings, Code2, FileText, ChevronDown } from 'lucide-svelte';
 	import type { LayoutData } from './$types';
 
 	let { children, data }: { children: any; data: LayoutData } = $props();
@@ -60,36 +63,52 @@
 							Chat
 						</a>
 					{/if}
-					<a
-						href="/docs"
-						class="hover:text-primary text-sm font-medium transition-colors"
-						class:text-primary={$page.route.id?.includes('docs')}
-					>
-						Docs
-					</a>
 				</nav>
 
 				<!-- Desktop Auth -->
 				<div class="hidden items-center space-x-4 md:flex">
 					{#if user}
-						<div class="flex items-center space-x-2">
-							<Button variant="ghost" size="sm" href="/settings">
-								<Settings class="mr-2 h-4 w-4" />
-								Settings
-							</Button>
-							<form method="POST" action="/auth/logout" style="display: inline;">
-								<Button variant="ghost" size="sm" type="submit">
-									<LogOut class="mr-2 h-4 w-4" />
-									Sign Out
+						<Popover.Root>
+							<Popover.Trigger>
+								<Button variant="ghost" size="sm" class="flex items-center space-x-2">
+									<div class="bg-primary flex h-6 w-6 items-center justify-center rounded-full">
+										<User class="text-primary-foreground h-3 w-3" />
+									</div>
+									<span class="text-sm font-medium">{user.email}</span>
+									<ChevronDown class="h-3 w-3 text-muted-foreground" />
 								</Button>
-							</form>
-							<div class="border-border flex items-center space-x-2 border-l pl-2">
-								<div class="bg-primary flex h-8 w-8 items-center justify-center rounded-full">
-									<User class="text-primary-foreground h-4 w-4" />
+							</Popover.Trigger>
+							<Popover.Content class="w-56 p-1" align="end">
+								<div class="space-y-1">
+									<div class="px-2 py-1.5">
+										<p class="text-sm font-medium">{user.email}</p>
+										<p class="text-xs text-muted-foreground">Account Menu</p>
+									</div>
+									<div class="h-px bg-border"></div>
+									<Button variant="ghost" size="sm" href="/developer" class="w-full justify-start">
+										<Code2 class="mr-2 h-4 w-4" />
+										Developer
+									</Button>
+									<div class="flex items-center space-x-2 px-2 py-1.5">
+										<Settings class="h-4 w-4 text-muted-foreground" />
+										<span class="text-sm text-muted-foreground">Settings</span>
+										<Badge variant="outline" class="ml-auto text-xs">Soon</Badge>
+									</div>
+									<div class="flex items-center space-x-2 px-2 py-1.5">
+										<FileText class="h-4 w-4 text-muted-foreground" />
+										<span class="text-sm text-muted-foreground">Docs</span>
+										<Badge variant="outline" class="ml-auto text-xs">Soon</Badge>
+									</div>
+									<div class="h-px bg-border"></div>
+									<form method="POST" action="/auth/logout" style="display: block;">
+										<Button variant="ghost" size="sm" type="submit" class="w-full justify-start text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950">
+											<LogOut class="mr-2 h-4 w-4" />
+											Sign Out
+										</Button>
+									</form>
 								</div>
-								<span class="text-sm font-medium">{user.email}</span>
-							</div>
-						</div>
+							</Popover.Content>
+						</Popover.Root>
 					{:else}
 						<Button variant="ghost" size="sm" href="/auth/login">Sign In</Button>
 						<Button size="sm" href="/auth/signup">Get Started</Button>
@@ -139,14 +158,6 @@
 							Chat
 						</a>
 					{/if}
-					<a
-						href="/docs"
-						class="hover:bg-muted block rounded-md px-3 py-2 text-sm font-medium"
-						class:bg-muted={$page.route.id?.includes('docs')}
-						onclick={closeMobileMenu}
-					>
-						Docs
-					</a>
 
 					{#if user}
 						<div class="border-border mt-2 border-t pt-2">
@@ -154,15 +165,24 @@
 								{user.email}
 							</div>
 							<a
-								href="/settings"
+								href="/developer"
 								class="hover:bg-muted block rounded-md px-3 py-2 text-sm font-medium"
+								class:bg-muted={$page.route.id?.startsWith('/developer')}
 								onclick={closeMobileMenu}
 							>
-								Settings
+								Developer
 							</a>
+							<div class="hover:bg-muted flex items-center justify-between rounded-md px-3 py-2 text-sm font-medium text-muted-foreground">
+								Settings
+								<Badge variant="outline" class="text-xs">Soon</Badge>
+							</div>
+							<div class="hover:bg-muted flex items-center justify-between rounded-md px-3 py-2 text-sm font-medium text-muted-foreground">
+								Docs
+								<Badge variant="outline" class="text-xs">Soon</Badge>
+							</div>
 							<form method="POST" action="/auth/logout" style="display: block;">
 								<button
-									class="hover:bg-muted block w-full rounded-md px-3 py-2 text-left text-sm font-medium"
+									class="hover:bg-muted hover:text-red-600 block w-full rounded-md px-3 py-2 text-left text-sm font-medium"
 									type="submit"
 								>
 									Sign Out
@@ -288,3 +308,6 @@
 		</div>
 	</footer>
 </div>
+
+<!-- Toaster for notifications -->
+<Toaster />

@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Test Runner</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            border-bottom: 2px solid #007acc;
+            padding-bottom: 10px;
+        }
+        .test-controls {
+            margin: 20px 0;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            border-left: 4px solid #007acc;
+        }
+        .button {
+            background: #007acc;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+        .button:hover {
+            background: #005a9e;
+        }
+        .button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .input {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-right: 10px;
+            width: 300px;
+        }
+        #output {
+            background: #1e1e1e;
+            color: #fff;
+            padding: 20px;
+            border-radius: 6px;
+            height: 500px;
+            overflow-y: auto;
+            font-family: 'Monaco', 'Consolas', monospace;
+            font-size: 12px;
+            line-height: 1.4;
+            white-space: pre-wrap;
+            margin-top: 20px;
+        }
+        .status-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            background: #e9ecef;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        .status-indicator {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .status-ready { background: #d4edda; color: #155724; }
+        .status-running { background: #fff3cd; color: #856404; }
+        .status-success { background: #d1ecf1; color: #0c5460; }
+        .status-error { background: #f8d7da; color: #721c24; }
+        .instructions {
+            background: #e7f3ff;
+            border: 1px solid #b3d9ff;
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .emoji { font-size: 1.2em; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 API Test Runner</h1>
+        
+        <div class="instructions">
+            <h3>📋 Instructions:</h3>
+            <ol>
+                <li><strong>Make sure you're logged in</strong> - Session auth tests require you to be logged into the developer console</li>
+                <li><strong>Create an API key</strong> (optional) - For testing API key authentication</li>
+                <li><strong>Start the dev server</strong> - Tests run against <code>localhost:5173</code></li>
+                <li><strong>Run tests</strong> - Use the buttons below to execute test suites</li>
+            </ol>
+        </div>
+
+        <div class="status-bar">
+            <div>
+                <span class="emoji">🚀</span>
+                <span>Test Status: </span>
+                <span id="status" class="status-indicator status-ready">Ready</span>
+            </div>
+            <div id="test-summary"></div>
+        </div>
+        
+        <div class="test-controls">
+            <h3>🎮 Test Controls</h3>
+            
+            <div style="margin-bottom: 15px;">
+                <input type="text" id="apiKeyInput" class="input" placeholder="API Key (optional - for API key auth tests)">
+                <button class="button" onclick="runAllTests()">🏃‍♂️ Run All Tests</button>
+            </div>
+            
+            <div>
+                <button class="button" onclick="runSystemPromptsTests()">📝 System Prompts Only</button>
+                <button class="button" onclick="runStructuredOutputsTests()">🏗️ Structured Outputs Only</button>
+                <button class="button" onclick="clearOutput()">🧹 Clear Output</button>
+                <button class="button" onclick="createTestApiKey()">🔑 Create Test API Key</button>
+            </div>
+        </div>
+
+        <div id="output">Ready to run tests... 🚀
+
+Available test suites:
+- System Prompts API (CRUD + Versioning)
+- Structured Outputs API (CRUD + Versioning)
+
+Both test suites will run with session authentication.
+If you provide an API key, they'll also test API key authentication.
+
+Click "Run All Tests" to begin!
+        </div>
+    </div>
+
+    <!-- Load test scripts -->
+    <script src="system-prompts.test.js"></script>
+    <script src="structured-outputs.test.js"></script>
+    <script src="run-all-tests.js"></script>
+    
+    <script>
+        const output = document.getElementById('output');
+        const status = document.getElementById('status');
+        const summary = document.getElementById('test-summary');
+        
+        let originalConsoleLog = console.log;
+        let originalConsoleError = console.error;
+        
+        // Redirect console output to the output div
+        function setupConsoleRedirect() {
+            console.log = function(...args) {
+                const message = args.join(' ');
+                appendOutput(message);
+                originalConsoleLog.apply(console, args);
+            };
+            
+            console.error = function(...args) {
+                const message = '❌ ERROR: ' + args.join(' ');
+                appendOutput(message);
+                originalConsoleError.apply(console, args);
+            };
+        }
+        
+        function appendOutput(message) {
+            output.textContent += message + '\\n';
+            output.scrollTop = output.scrollHeight;
+        }
+        
+        function clearOutput() {
+            output.textContent = '';
+        }
+        
+        function updateStatus(statusText, className) {
+            status.textContent = statusText;
+            status.className = `status-indicator ${className}`;
+        }
+        
+        function updateSummary(results) {
+            if (!results) return;
+            
+            let totalPassed = 0;
+            let totalFailed = 0;
+            
+            // Count results from both auth types
+            Object.values(results).forEach(authResults => {
+                if (authResults) {
+                    Object.values(authResults).forEach(testResults => {
+                        if (testResults) {
+                            totalPassed += testResults.passed || 0;
+                            totalFailed += testResults.failed || 0;
+                        }
+                    });
+                }
+            });
+            
+            const successRate = totalPassed + totalFailed > 0 
+                ? ((totalPassed / (totalPassed + totalFailed)) * 100).toFixed(1)
+                : 0;
+            
+            summary.innerHTML = `
+                <span>📊 ${totalPassed + totalFailed} tests | </span>
+                <span style="color: green;">✅ ${totalPassed} passed | </span>
+                <span style="color: red;">❌ ${totalFailed} failed | </span>
+                <span>📈 ${successRate}% success</span>
+            `;
+        }
+        
+        async function runAllTests() {
+            const apiKey = document.getElementById('apiKeyInput').value.trim() || null;
+            
+            updateStatus('Running...', 'status-running');
+            clearOutput();
+            appendOutput('🚀 Starting comprehensive API test suite...\\n');
+            
+            try {
+                const runner = new BrowserTestRunner();
+                const results = await runner.runAllTests(apiKey);
+                
+                updateSummary(results);
+                
+                if (results) {
+                    const hasFailures = Object.values(results).some(authResults => 
+                        authResults && Object.values(authResults).some(testResults => 
+                            testResults && testResults.failed > 0
+                        )
+                    );
+                    
+                    updateStatus(
+                        hasFailures ? 'Completed with failures' : 'All tests passed!', 
+                        hasFailures ? 'status-error' : 'status-success'
+                    );
+                } else {
+                    updateStatus('Test execution failed', 'status-error');
+                }
+            } catch (error) {
+                appendOutput(`\\n❌ Test execution failed: ${error.message}`);
+                updateStatus('Error', 'status-error');
+            }
+        }
+        
+        async function runSystemPromptsTests() {
+            const apiKey = document.getElementById('apiKeyInput').value.trim() || null;
+            
+            updateStatus('Running System Prompts...', 'status-running');
+            clearOutput();
+            appendOutput('📝 Running System Prompts API tests...\\n');
+            
+            try {
+                // Session auth test
+                const sessionAPI = new SystemPromptsAPI({ useApiKey: false, baseUrl: 'http://localhost:5173/api/v1' });
+                const sessionSuite = new SystemPromptsTestSuite(sessionAPI);
+                const sessionResults = await sessionSuite.runAllTests();
+                
+                let results = { sessionAuth: { systemPrompts: sessionResults } };
+                
+                // API key auth test if key provided
+                if (apiKey) {
+                    appendOutput('\\n🔑 Running with API key authentication...\\n');
+                    const apiKeyAPI = new SystemPromptsAPI({ useApiKey: true, apiKey, baseUrl: 'http://localhost:5173/api/v1' });
+                    const apiKeySuite = new SystemPromptsTestSuite(apiKeyAPI);
+                    const apiKeyResults = await apiKeySuite.runAllTests();
+                    results.apiKeyAuth = { systemPrompts: apiKeyResults };
+                }
+                
+                updateSummary(results);
+                updateStatus(
+                    sessionResults.failed > 0 ? 'Completed with failures' : 'All tests passed!',
+                    sessionResults.failed > 0 ? 'status-error' : 'status-success'
+                );
+            } catch (error) {
+                appendOutput(`\\n❌ Test execution failed: ${error.message}`);
+                updateStatus('Error', 'status-error');
+            }
+        }
+        
+        async function runStructuredOutputsTests() {
+            const apiKey = document.getElementById('apiKeyInput').value.trim() || null;
+            
+            updateStatus('Running Structured Outputs...', 'status-running');
+            clearOutput();
+            appendOutput('🏗️ Running Structured Outputs API tests...\\n');
+            
+            try {
+                // Session auth test
+                const sessionAPI = new StructuredOutputsAPI({ useApiKey: false, baseUrl: 'http://localhost:5173/api/v1' });
+                const sessionSuite = new StructuredOutputsTestSuite(sessionAPI);
+                const sessionResults = await sessionSuite.runAllTests();
+                
+                let results = { sessionAuth: { structuredOutputs: sessionResults } };
+                
+                // API key auth test if key provided
+                if (apiKey) {
+                    appendOutput('\\n🔑 Running with API key authentication...\\n');
+                    const apiKeyAPI = new StructuredOutputsAPI({ useApiKey: true, apiKey, baseUrl: 'http://localhost:5173/api/v1' });
+                    const apiKeySuite = new StructuredOutputsTestSuite(apiKeyAPI);
+                    const apiKeyResults = await apiKeySuite.runAllTests();
+                    results.apiKeyAuth = { structuredOutputs: apiKeyResults };
+                }
+                
+                updateSummary(results);
+                updateStatus(
+                    sessionResults.failed > 0 ? 'Completed with failures' : 'All tests passed!',
+                    sessionResults.failed > 0 ? 'status-error' : 'status-success'
+                );
+            } catch (error) {
+                appendOutput(`\\n❌ Test execution failed: ${error.message}`);
+                updateStatus('Error', 'status-error');
+            }
+        }
+        
+        async function createTestApiKey() {
+            updateStatus('Creating API key...', 'status-running');
+            appendOutput('🔑 Creating test API key...\\n');
+            
+            try {
+                const response = await fetch('http://localhost:5173/api/v1/api-keys', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        name: 'Test API Key - ' + new Date().toLocaleString(),
+                        scopes: ['system-prompts:read', 'system-prompts:write', 'structured-outputs:read', 'structured-outputs:write'],
+                        rate_limit: 1000,
+                        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Failed to create API key: ${response.status}`);
+                }
+
+                const result = await response.json();
+                document.getElementById('apiKeyInput').value = result.api_key;
+                appendOutput(`✅ Created API key: ${result.key_prefix}...`);
+                appendOutput(`📋 API key has been automatically filled in the input field above.`);
+                updateStatus('API key created', 'status-success');
+            } catch (error) {
+                appendOutput(`❌ Failed to create API key: ${error.message}`);
+                appendOutput(`💡 Make sure you're logged into the developer console first.`);
+                updateStatus('Error', 'status-error');
+            }
+        }
+        
+        // Initialize
+        setupConsoleRedirect();
+        updateStatus('Ready', 'status-ready');
+    </script>
+</body>
+</html>
