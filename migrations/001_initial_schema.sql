@@ -95,6 +95,18 @@ CREATE TABLE IF NOT EXISTS storage_usage (
     deleted_at TIMESTAMPTZ
 );
 
+-- Create user_favorite_models table for tracking user's favorite AI models
+CREATE TABLE IF NOT EXISTS user_favorite_models (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+    model_id TEXT NOT NULL, -- OpenRouter model identifier (e.g., 'moonshotai/kimi-k2:free')
+    display_name TEXT, -- User's custom name for the model (optional)
+    is_default BOOLEAN DEFAULT false, -- Whether this is the user's default model
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(user_id, model_id) -- Prevent duplicate favorites
+);
+
 -- Create indexes for better performance
 CREATE INDEX IF NOT EXISTS idx_profiles_username ON profiles(username);
 CREATE INDEX IF NOT EXISTS idx_chats_user_id ON chats(user_id);
@@ -108,6 +120,8 @@ CREATE INDEX IF NOT EXISTS idx_user_sessions_expires_at ON user_sessions(expires
 CREATE INDEX IF NOT EXISTS idx_api_usage_user_id ON api_usage(user_id);
 CREATE INDEX IF NOT EXISTS idx_api_usage_created_at ON api_usage(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_storage_usage_user_id ON storage_usage(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_favorite_models_user_id ON user_favorite_models(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_favorite_models_model_id ON user_favorite_models(model_id);
 
 -- Row Level Security (RLS) policies
 
@@ -119,6 +133,7 @@ ALTER TABLE user_activity ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE api_usage ENABLE ROW LEVEL SECURITY;
 ALTER TABLE storage_usage ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_favorite_models ENABLE ROW LEVEL SECURITY;
 
 -- Profiles policies
 DO $$ BEGIN
@@ -279,6 +294,35 @@ DO $$ BEGIN
     END IF;
 END $$;
 
+-- User favorite models policies
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'user_favorite_models' AND policyname = 'Users can view their own favorite models') THEN
+        CREATE POLICY "Users can view their own favorite models" ON user_favorite_models
+            FOR SELECT USING (auth.uid() = user_id);
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'user_favorite_models' AND policyname = 'Users can insert their own favorite models') THEN
+        CREATE POLICY "Users can insert their own favorite models" ON user_favorite_models
+            FOR INSERT WITH CHECK (auth.uid() = user_id);
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'user_favorite_models' AND policyname = 'Users can update their own favorite models') THEN
+        CREATE POLICY "Users can update their own favorite models" ON user_favorite_models
+            FOR UPDATE USING (auth.uid() = user_id);
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'user_favorite_models' AND policyname = 'Users can delete their own favorite models') THEN
+        CREATE POLICY "Users can delete their own favorite models" ON user_favorite_models
+            FOR DELETE USING (auth.uid() = user_id);
+    END IF;
+END $$;
+
 -- Functions for automatic timestamps
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
@@ -302,6 +346,15 @@ DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_chats_updated_at') THEN
         CREATE TRIGGER update_chats_updated_at
             BEFORE UPDATE ON chats
+            FOR EACH ROW
+            EXECUTE FUNCTION update_updated_at_column();
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_user_favorite_models_updated_at') THEN
+        CREATE TRIGGER update_user_favorite_models_updated_at
+            BEFORE UPDATE ON user_favorite_models
             FOR EACH ROW
             EXECUTE FUNCTION update_updated_at_column();
     END IF;

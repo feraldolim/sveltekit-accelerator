@@ -5,6 +5,7 @@ import {
 	createCompletionStream,
 	parseStreamResponse,
 	truncateMessages,
+	estimateTokenCount,
 	type ChatMessage
 } from '$lib/server/llm.js';
 import { addMessage, createChat, updateChatTitle, updateChatMessageCount } from '$lib/server/chats.js';
@@ -31,6 +32,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			stream = false, 
 			temperature = 0.7, 
 			max_tokens,
+			max_completion_tokens,
+			top_p,
+			frequency_penalty,
+			presence_penalty,
 			chat_id,
 			system_prompt,
 			system_prompt_id,
@@ -185,7 +190,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			messages: truncatedMessages as ChatMessage[],
 			model: model || 'moonshotai/kimi-k2:free',
 			temperature,
-			max_tokens,
+			...(max_completion_tokens && { max_tokens: max_completion_tokens }), // Use max_tokens for API, regardless of frontend param name
+			...(max_tokens && { max_tokens }), // Legacy support
+			...(top_p && { top_p }),
+			...(frequency_penalty && { frequency_penalty }),
+			...(presence_penalty && { presence_penalty }),
 			stream,
 			response_format: resolvedResponseFormat,
 			...(userApiKey && { apiKey: userApiKey })
@@ -211,12 +220,15 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 						// Save assistant response to database
 						if (assistantResponse.trim()) {
+							// Estimate token count for streaming responses
+							const estimatedTokens = estimateTokenCount(assistantResponse.trim());
+							
 							await addMessage(
 								currentChatId,
 								'assistant',
 								assistantResponse.trim(),
 								model || 'moonshotai/kimi-k2:free',
-								undefined, // tokenCount - would need to calculate
+								estimatedTokens, // Use estimated token count for streaming
 								systemPromptData?.id,
 								systemPromptData?.version,
 								structuredOutputData?.id,
@@ -258,7 +270,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 				'assistant',
 				assistantContent,
 				model || 'moonshotai/kimi-k2:free',
-				undefined, // tokenCount - would need to calculate
+				completion.usage?.total_tokens, // Include token usage
 				systemPromptData?.id,
 				systemPromptData?.version,
 				structuredOutputData?.id,

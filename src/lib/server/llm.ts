@@ -20,11 +20,40 @@ export interface ChatMessage {
 	}>;
 }
 
+export interface ModelPricing {
+	prompt: string; // Cost per token as string (e.g., "0.000001")
+	completion: string; // Cost per token as string
+	image?: string; // Cost per image
+	request?: string; // Base cost per request
+}
+
+export interface ModelCapabilities {
+	input_modalities: string[]; // e.g., ["text", "image"]
+	output_modalities: string[]; // e.g., ["text"]
+	context_length: number; // Maximum context window
+	max_completion_tokens?: number; // Maximum completion tokens
+	multimodal: boolean; // Derived from input_modalities
+}
+
+export interface ModelMetadata {
+	id: string;
+	name: string;
+	description?: string;
+	created?: number;
+	pricing: ModelPricing;
+	capabilities: ModelCapabilities;
+	top_provider?: {
+		max_completion_tokens?: number;
+		max_context_tokens?: number;
+	};
+}
+
 export interface CompletionRequest {
 	messages: ChatMessage[];
 	model?: string;
 	temperature?: number;
-	max_tokens?: number;
+	max_tokens?: number; // Deprecated, use max_completion_tokens
+	max_completion_tokens?: number; // New parameter
 	top_p?: number;
 	frequency_penalty?: number;
 	presence_penalty?: number;
@@ -40,21 +69,26 @@ export interface CompletionRequest {
 	apiKey?: string; // Allow custom API key
 }
 
+export interface CompletionUsage {
+	prompt_tokens: number;
+	completion_tokens: number;
+	total_tokens: number;
+	estimated_cost?: number; // Calculated cost based on model pricing
+}
+
 export interface CompletionResponse {
 	id: string;
 	object: string;
 	created: number;
 	model: string;
+	provider?: string; // Actual provider used
 	choices: {
 		index: number;
 		message: ChatMessage;
 		finish_reason: string;
 	}[];
-	usage: {
-		prompt_tokens: number;
-		completion_tokens: number;
-		total_tokens: number;
-	};
+	usage: CompletionUsage;
+	system_fingerprint?: string;
 }
 
 export interface StreamChunk {
@@ -86,6 +120,13 @@ export async function createCompletion(request: CompletionRequest): Promise<Comp
 	// Remove apiKey from request object to avoid sending it in the body
 	const { apiKey: _, ...requestBody } = request;
 	
+	// Prepare the request body
+	const completionRequest = {
+		...requestBody,
+		model: request.model || DEFAULT_MODEL,
+		stream: false
+	};
+
 	const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
 		method: 'POST',
 		headers: {
@@ -94,11 +135,7 @@ export async function createCompletion(request: CompletionRequest): Promise<Comp
 			'HTTP-Referer': process.env.PUBLIC_APP_URL || 'http://localhost:5173',
 			'X-Title': 'SvelteKit Accelerator'
 		},
-		body: JSON.stringify({
-			...requestBody,
-			model: request.model || DEFAULT_MODEL,
-			stream: false
-		})
+		body: JSON.stringify(completionRequest)
 	});
 
 	if (!response.ok) {
@@ -123,6 +160,13 @@ export async function createCompletionStream(request: CompletionRequest): Promis
 	// Remove apiKey from request object to avoid sending it in the body
 	const { apiKey: _, ...requestBody } = request;
 	
+	// Prepare the request body
+	const completionRequest = {
+		...requestBody,
+		model: request.model || DEFAULT_MODEL,
+		stream: true
+	};
+	
 	const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
 		method: 'POST',
 		headers: {
@@ -131,11 +175,7 @@ export async function createCompletionStream(request: CompletionRequest): Promis
 			'HTTP-Referer': process.env.PUBLIC_APP_URL || 'http://localhost:5173',
 			'X-Title': 'SvelteKit Accelerator'
 		},
-		body: JSON.stringify({
-			...requestBody,
-			model: request.model || DEFAULT_MODEL,
-			stream: true
-		})
+		body: JSON.stringify(completionRequest)
 	});
 
 	if (!response.ok) {
@@ -239,7 +279,7 @@ export async function createChatCompletion(
 /**
  * Get available models from OpenRouter
  */
-export async function getAvailableModels(): Promise<unknown[]> {
+export async function getAvailableModels(): Promise<ModelMetadata[]> {
 	const response = await fetch(`${OPENROUTER_BASE_URL}/models`, {
 		headers: {
 			Authorization: `Bearer ${OPENROUTER_API_KEY}`,
@@ -252,7 +292,45 @@ export async function getAvailableModels(): Promise<unknown[]> {
 	}
 
 	const data = await response.json();
-	return data.data || [];
+	const rawModels = data.data || [];
+
+	// Transform raw OpenRouter model data to our enhanced format
+	return rawModels.map((model: any): ModelMetadata => {
+		const inputModalities = model.architecture?.input_modalities || ['text'];
+		const outputModalities = model.architecture?.output_modalities || ['text'];
+		
+		return {
+			id: model.id,
+			name: model.name,
+			description: model.description,
+			created: model.created,
+			pricing: {
+				prompt: model.pricing?.prompt || '0',
+				completion: model.pricing?.completion || '0',
+				image: model.pricing?.image,
+				request: model.pricing?.request
+			},
+			capabilities: {
+				input_modalities: inputModalities,
+				output_modalities: outputModalities,
+				context_length: model.context_length || model.architecture?.context_length || 4096,
+				max_completion_tokens: model.top_provider?.max_completion_tokens,
+				multimodal: inputModalities.length > 1 || inputModalities.includes('image')
+			},
+			top_provider: model.top_provider
+		};
+	});
+}
+
+/**
+ * Calculate estimated cost based on token usage and model pricing
+ */
+export function calculateEstimatedCost(usage: CompletionUsage, pricing: ModelPricing): number {
+	const promptCost = parseFloat(pricing.prompt) * usage.prompt_tokens;
+	const completionCost = parseFloat(pricing.completion) * usage.completion_tokens;
+	const baseCost = pricing.request ? parseFloat(pricing.request) : 0;
+	
+	return promptCost + completionCost + baseCost;
 }
 
 /**

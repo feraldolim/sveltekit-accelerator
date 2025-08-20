@@ -3,6 +3,7 @@ import { getAvailableModels } from '$lib/server/llm.js';
 import { getUserChats } from '$lib/server/chats.js';
 import { listSystemPrompts } from '$lib/server/system-prompts.js';
 import { listStructuredOutputs } from '$lib/server/structured-outputs.js';
+import { getUserFavoriteModels, getUserDefaultModel } from '$lib/server/favorite-models.js';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async (event) => {
@@ -46,11 +47,29 @@ export const load: PageServerLoad = async (event) => {
 		console.error('Failed to fetch structured outputs:', error);
 	}
 
+	// Get user's favorite models
+	let favoriteModels: unknown[] = [];
+	try {
+		favoriteModels = await getUserFavoriteModels(user.id);
+	} catch (error) {
+		console.error('Failed to fetch favorite models:', error);
+	}
+
+	// Get user's default model
+	let defaultModel: unknown = null;
+	try {
+		defaultModel = await getUserDefaultModel(user.id);
+	} catch (error) {
+		console.error('Failed to fetch default model:', error);
+	}
+
 	return {
 		user,
 		models,
 		chats,
 		systemPrompts,
-		structuredOutputs
+		structuredOutputs,
+		favoriteModels,
+		defaultModel
 	};
 };

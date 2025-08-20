@@ -41,12 +41,21 @@
 		Braces,
 		Globe,
 		Lock,
-		History
+		History,
+		Star,
+		StarOff
 	} from 'lucide-svelte';
 	import { toast } from 'svelte-sonner';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
+
+	interface TokenUsage {
+		prompt_tokens?: number;
+		completion_tokens?: number;
+		total_tokens?: number;
+		estimated_cost?: number;
+	}
 
 	interface Message {
 		id: string;
@@ -55,6 +64,8 @@
 		timestamp: Date;
 		model?: string;
 		attachments?: Attachment[];
+		usage?: TokenUsage;
+		provider?: string;
 	}
 
 	interface Attachment {
@@ -111,13 +122,13 @@
 	let showSettings = $state(false);
 	let showApiKeyDialog = $state(false);
 	let showSidebar = $state(true);
-	let showRightPanel = $state(false);
+	let showRightPanel = $state(true);
 	let copiedMessageId: string | null = $state(null);
 	let sidebarTab = $state<'prompts' | 'outputs' | 'conversations'>('conversations');
 
 	// Chat configuration
 	let temperature = $state(0.7);
-	let maxTokens = $state(2000);
+	let maxCompletionTokens = $state(1000);
 	let streamResponse = $state(true);
 
 	// API Key management
@@ -130,12 +141,18 @@
 	let selectedStructuredOutput: StructuredOutput | null = $state(null);
 	let attachments: Attachment[] = $state([]);
 	let searchQuery = $state('');
+	let modelSearchQuery = $state('');
+	let showModelDropdown = $state(false);
 	let isDragOver = $state(false);
+	let showFavoritesOnly = $state(false);
+	let favoriteModelIds = $state(new Set<string>());
 
 	// Data from server
-	const availableModels = $derived((data.models || []) as Array<{id: string, name?: string}>);
+	const availableModels = $derived((data.models || []) as any[]);
 	const systemPrompts = $derived((data.systemPrompts || []) as SystemPrompt[]);
 	const structuredOutputs = $derived((data.structuredOutputs || []) as StructuredOutput[]);
+	const favoriteModels = $derived((data.favoriteModels || []) as any[]);
+	const defaultModel = $derived(data.defaultModel as any);
 	
 	// Conversations state - reactive to both server data and new chats
 	let conversations = $state((data.chats || []) as Conversation[]);
@@ -145,7 +162,13 @@
 		const model = availableModels.find(m => m.id === selectedModelId);
 		return model?.name || model?.id || "Select model";
 	});
-	const hasMessages = $derived(messages.length > 0);
+	const selectedModelData = $derived(() => {
+		return availableModels.find(m => m.id === selectedModelId) as any;
+	});
+	const maxCompletionTokensLimit = $derived(() => {
+		const model = selectedModelData();
+		return model?.capabilities?.max_completion_tokens || model?.top_provider?.max_completion_tokens || 4000;
+	});
 	const hasAttachments = $derived(attachments.length > 0);
 
 	// Filter conversations based on search
@@ -154,6 +177,27 @@
 			? conversations.filter(c => c.title.toLowerCase().includes(searchQuery.toLowerCase()))
 			: conversations
 	);
+
+	// Filter models based on search and favorites
+	const filteredModels = $derived(() => {
+		let models = availableModels;
+		
+		// Filter by favorites if toggle is enabled
+		if (showFavoritesOnly) {
+			models = models.filter(model => favoriteModelIds.has(model.id));
+		}
+		
+		// Filter by search query
+		if (modelSearchQuery) {
+			const query = modelSearchQuery.toLowerCase();
+			models = models.filter(model => 
+				model.id?.toLowerCase().includes(query) || 
+				model.name?.toLowerCase().includes(query)
+			);
+		}
+		
+		return models;
+	});
 
 	// Configure marked for better rendering
 	marked.setOptions({
@@ -166,10 +210,19 @@
 	let fileInput: HTMLInputElement;
 
 	onMount(() => {
-		// Set default model when data is available
+		// Initialize favorite model IDs set
+		favoriteModelIds = new Set(favoriteModels.map((fm: any) => fm.model_id));
+		
+		// Set default model - prefer user's default, then fallback to configured default
 		if (!selectedModel && availableModels.length > 0) {
-			selectedModel = availableModels.find(m => m.id === selectedModelId) || availableModels[0];
-			selectedModelId = selectedModel.id;
+			const userDefaultModelId = defaultModel?.model_id;
+			if (userDefaultModelId) {
+				selectedModelId = userDefaultModelId;
+				selectedModel = availableModels.find(m => m.id === userDefaultModelId) || availableModels[0];
+			} else {
+				selectedModel = availableModels.find(m => m.id === selectedModelId) || availableModels[0];
+				selectedModelId = selectedModel?.id || availableModels[0].id;
+			}
 		}
 		// Focus input after mount
 		if (messageInput && messageInput.focus) {
@@ -187,10 +240,21 @@
 		document.addEventListener('drop', handleDrop);
 		document.addEventListener('dragleave', handleDragLeave);
 
+		// Close model dropdown when clicking outside
+		const handleClickOutside = (e: Event) => {
+			const target = e.target as HTMLElement;
+			if (!target.closest('.model-dropdown')) {
+				showModelDropdown = false;
+				modelSearchQuery = '';
+			}
+		};
+		document.addEventListener('click', handleClickOutside);
+
 		return () => {
 			document.removeEventListener('dragover', handleDragOver);
 			document.removeEventListener('drop', handleDrop);
 			document.removeEventListener('dragleave', handleDragLeave);
+			document.removeEventListener('click', handleClickOutside);
 		};
 	});
 
@@ -221,6 +285,105 @@
 			selectedModel = availableModels.find(m => m.id === selectedModelId) || availableModels[0];
 		}
 	});
+
+	// Auto-adjust maxCompletionTokens when model changes
+	$effect(() => {
+		if (selectedModelId && availableModels.length > 0) {
+			const modelLimit = maxCompletionTokensLimit();
+			// Keep current value if it's within the new limit, otherwise reset to a reasonable default
+			if (maxCompletionTokens > modelLimit) {
+				maxCompletionTokens = Math.min(1000, modelLimit);
+			}
+		}
+	});
+
+	// Auto-select appropriate model when toggling favorites filter
+	$effect(() => {
+		if (showFavoritesOnly && availableModels.length > 0) {
+			// If favorites only is enabled and current model is not in favorites, switch to first favorite or default
+			if (!favoriteModelIds.has(selectedModelId)) {
+				const favoriteModels = availableModels.filter(model => favoriteModelIds.has(model.id));
+				if (favoriteModels.length > 0) {
+					// Prefer the user's default model if it's in favorites
+					const userDefault = favoriteModels.find(model => defaultModel?.model_id === model.id);
+					const modelToSelect = userDefault || favoriteModels[0];
+					selectedModelId = modelToSelect.id;
+					toast.success(`Switched to favorited model: ${modelToSelect.name || modelToSelect.id}`);
+				} else {
+					// No favorites available, show warning and turn off favorites filter
+					showFavoritesOnly = false;
+					toast.error('No favorite models found. Add some models to favorites first.');
+				}
+			}
+		}
+	});
+
+	// Favorite models functions
+	async function toggleFavoriteModel(modelId: string) {
+		try {
+			const isFavorited = favoriteModelIds.has(modelId);
+			
+			if (isFavorited) {
+				// Remove from favorites
+				const response = await fetch('/api/favorite-models', {
+					method: 'DELETE',
+					headers: {
+						'Content-Type': 'application/json'
+					},
+					body: JSON.stringify({ modelId })
+				});
+
+				if (!response.ok) throw new Error('Failed to remove favorite');
+				
+				favoriteModelIds.delete(modelId);
+				favoriteModelIds = new Set(favoriteModelIds);
+				toast.success('Removed from favorites');
+			} else {
+				// Add to favorites
+				const response = await fetch('/api/favorite-models', {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json'
+					},
+					body: JSON.stringify({ modelId })
+				});
+
+				if (!response.ok) throw new Error('Failed to add favorite');
+				
+				favoriteModelIds.add(modelId);
+				favoriteModelIds = new Set(favoriteModelIds);
+				toast.success('Added to favorites');
+			}
+		} catch (error) {
+			console.error('Error toggling favorite:', error);
+			toast.error('Failed to update favorites');
+		}
+	}
+
+	async function setAsDefault(modelId: string) {
+		try {
+			const response = await fetch('/api/favorite-models', {
+				method: 'PATCH',
+				headers: {
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify({ modelId, action: 'set_default' })
+			});
+
+			if (!response.ok) throw new Error('Failed to set default model');
+			
+			// Add to favorites if not already favorited
+			if (!favoriteModelIds.has(modelId)) {
+				favoriteModelIds.add(modelId);
+				favoriteModelIds = new Set(favoriteModelIds);
+			}
+			
+			toast.success('Set as default model');
+		} catch (error) {
+			console.error('Error setting default:', error);
+			toast.error('Failed to set default model');
+		}
+	}
 
 	// File upload handlers
 	function handleDragOver(e: DragEvent) {
@@ -434,7 +597,7 @@
 			messages: apiMessages,
 			model: selectedModel?.id || 'moonshotai/kimi-k2:free',
 			temperature,
-			max_tokens: maxTokens,
+			max_tokens: maxCompletionTokens, // OpenRouter API uses max_tokens
 			stream: true,
 			chat_id: currentChatId,
 			attachments: apiAttachments
@@ -507,6 +670,28 @@
 											: msg
 									);
 								}
+
+								// Update model and provider info when available
+								if (parsed.model || parsed.provider) {
+									messages = messages.map((msg) =>
+										msg.id === assistantMessage.id
+											? { 
+												...msg, 
+												model: parsed.model || msg.model,
+												provider: parsed.provider || msg.provider
+											}
+											: msg
+									);
+								}
+
+								// Handle usage info if provided (usually at the end of stream)
+								if (parsed.usage) {
+									messages = messages.map((msg) =>
+										msg.id === assistantMessage.id
+											? { ...msg, usage: parsed.usage }
+											: msg
+									);
+								}
 							} catch (e) {
 								console.warn('Failed to parse streaming data:', e);
 							}
@@ -533,7 +718,7 @@
 			messages: apiMessages,
 			model: selectedModel?.id || 'moonshotai/kimi-k2:free',
 			temperature,
-			max_tokens: maxTokens,
+			max_tokens: maxCompletionTokens, // OpenRouter API uses max_tokens
 			stream: false,
 			chat_id: currentChatId,
 			attachments: apiAttachments
@@ -574,7 +759,9 @@
 			role: 'assistant',
 			content: result.choices[0]?.message?.content || 'No response',
 			timestamp: new Date(),
-			model: selectedModel?.id || 'moonshotai/kimi-k2:free'
+			model: result.model || selectedModel?.id || 'moonshotai/kimi-k2:free',
+			provider: result.provider,
+			usage: result.usage
 		};
 
 		messages = [...messages, assistantMessage];
@@ -630,6 +817,21 @@
 			case 'audio': return FileText;
 			default: return FileText;
 		}
+	}
+
+	function formatTokenUsage(usage?: TokenUsage): string {
+		if (!usage?.total_tokens) return '';
+		return `${usage.total_tokens.toLocaleString()} tokens`;
+	}
+
+	function formatTokenUsageTooltip(usage?: TokenUsage): string {
+		if (!usage) return '';
+		const parts = [];
+		if (usage.prompt_tokens) parts.push(`Prompt: ${usage.prompt_tokens.toLocaleString()}`);
+		if (usage.completion_tokens) parts.push(`Completion: ${usage.completion_tokens.toLocaleString()}`);
+		if (usage.total_tokens) parts.push(`Total: ${usage.total_tokens.toLocaleString()}`);
+		if (usage.estimated_cost) parts.push(`Est. Cost: $${usage.estimated_cost.toFixed(6)}`);
+		return parts.join('\n');
 	}
 
 	function selectSystemPrompt(prompt: SystemPrompt) {
@@ -931,9 +1133,6 @@
 				<Button variant="outline" size="sm" onclick={() => (showApiKeyDialog = true)}>
 					<Key class="h-4 w-4" />
 				</Button>
-				<Button variant="outline" size="sm" onclick={() => (showSettings = true)}>
-					<Settings class="h-4 w-4" />
-				</Button>
 				<Button variant="outline" size="sm" onclick={clearChat} disabled={messages.length === 0}>
 					<RotateCcw class="h-4 w-4" />
 				</Button>
@@ -957,6 +1156,7 @@
 			</div>
 		{/if}
 
+
 		<!-- Messages Container -->
 		<div bind:this={chatContainer} class="flex-1 overflow-y-auto p-4">
 			{#if messages.length === 0}
@@ -966,7 +1166,7 @@
 						<div class="bg-primary mb-6 inline-flex items-center justify-center rounded-full p-4">
 							<Sparkles class="text-primary-foreground h-8 w-8" />
 						</div>
-						<h2 class="mb-2 text-xl font-semibold">Welcome to Enhanced AI Chat</h2>
+						<h2 class="mb-2 text-xl font-semibold">Welcome to SKA AI Chat</h2>
 						<p class="text-muted-foreground mx-auto mb-6 max-w-md">
 							Start a conversation with AI. Upload files, use system prompts, or enable structured outputs for advanced functionality.
 						</p>
@@ -997,13 +1197,27 @@
 							</div>
 
 							<div class="min-w-0 flex-1">
-								<div class="mb-2 flex items-center space-x-2">
+								<div class="mb-2 flex items-center space-x-2 flex-wrap">
 									<span class="text-sm font-medium">
 										{message.role === 'user' ? 'You' : 'AI Assistant'}
 									</span>
 									{#if message.model && message.role === 'assistant'}
 										<Badge variant="secondary" class="text-xs">
 											{message.model}
+										</Badge>
+									{/if}
+									{#if message.provider && message.role === 'assistant'}
+										<Badge variant="outline" class="text-xs">
+											{message.provider}
+										</Badge>
+									{/if}
+									{#if message.usage && message.role === 'assistant'}
+										<Badge 
+											variant="outline" 
+											class="text-xs cursor-help hover:bg-muted" 
+											title={formatTokenUsageTooltip(message.usage)}
+										>
+											{formatTokenUsage(message.usage)}
 										</Badge>
 									{/if}
 									<span class="text-muted-foreground text-xs">
@@ -1150,6 +1364,195 @@
 			</div>
 		</div>
 	</main>
+
+	<!-- Right Settings Panel -->
+	{#if showRightPanel}
+		<aside class="w-80 border-l bg-background flex flex-col">
+			<!-- Panel Header -->
+			<div class="p-4 border-b">
+				<div class="flex items-center justify-between">
+					<h3 class="font-semibold">Quick Settings</h3>
+					<Button variant="ghost" size="sm" onclick={() => showRightPanel = false}>
+						<ChevronRight class="h-4 w-4" />
+					</Button>
+				</div>
+			</div>
+
+			<!-- Settings Content -->
+			<div class="flex-1 overflow-y-auto p-4 space-y-6">
+				<!-- Model Selection -->
+				<div class="space-y-3">
+					<div class="flex items-center justify-between">
+						<Label class="text-sm font-medium">Model</Label>
+						<div class="flex items-center space-x-2">
+							<Switch bind:checked={showFavoritesOnly} />
+							<Label class="text-xs text-muted-foreground">Favorites Only</Label>
+						</div>
+					</div>
+					
+					<!-- Custom Searchable Dropdown -->
+					<div class="relative model-dropdown">
+						<!-- Selected Model Display / Search Input -->
+						<button
+							type="button"
+							class="flex items-center justify-between w-full px-3 py-2 text-sm border rounded-md cursor-pointer bg-background hover:bg-muted focus:outline-none focus:ring-2 focus:ring-primary"
+							onclick={() => showModelDropdown = !showModelDropdown}
+							aria-expanded={showModelDropdown}
+							aria-haspopup="listbox"
+						>
+							{#if showModelDropdown}
+								<input
+									type="text"
+									bind:value={modelSearchQuery}
+									placeholder="Search models..."
+									class="flex-1 bg-transparent outline-none"
+									onclick={(e) => e.stopPropagation()}
+								/>
+							{:else}
+								<span class="truncate">{triggerContent()}</span>
+							{/if}
+							<ChevronRight class="h-4 w-4 transform transition-transform {showModelDropdown ? 'rotate-90' : ''}" />
+						</button>
+
+						<!-- Dropdown List -->
+						{#if showModelDropdown}
+							<div class="absolute z-50 w-full mt-1 bg-background border rounded-md shadow-lg max-h-[300px] overflow-y-auto" role="listbox">
+								{#each filteredModels() as model (model.id)}
+									<div class="flex items-center border-b border-border/50 last:border-b-0">
+										<button
+											type="button"
+											class="flex-1 text-left px-3 py-2 hover:bg-muted cursor-pointer focus:outline-none focus:bg-muted"
+											onclick={() => {
+												selectedModelId = model.id;
+												showModelDropdown = false;
+												modelSearchQuery = '';
+											}}
+											role="option"
+											aria-selected={selectedModelId === model.id}
+										>
+											<div class="flex flex-col items-start w-full">
+												<div class="flex items-center justify-between w-full">
+													<span class="font-medium text-sm">{model.name || model.id}</span>
+													{#if defaultModel?.model_id === model.id}
+														<Badge variant="outline" class="text-xs h-5">Default</Badge>
+													{/if}
+												</div>
+												{#if model.capabilities}
+													<div class="flex items-center space-x-2 text-xs text-muted-foreground mt-1">
+														<span>{model.capabilities.context_length?.toLocaleString() || 'N/A'} ctx</span>
+														{#if model.capabilities.multimodal}
+															<Badge variant="outline" class="text-xs h-4">📷</Badge>
+														{/if}
+														{#if model.pricing}
+															<span>${(parseFloat(model.pricing.completion) * 1000).toFixed(3)}/1K</span>
+														{/if}
+													</div>
+												{/if}
+											</div>
+										</button>
+										<div class="flex items-center px-2">
+											<button
+												type="button"
+												class="p-1 hover:bg-muted rounded focus:outline-none"
+												onclick={(e) => {
+													e.stopPropagation();
+													toggleFavoriteModel(model.id);
+												}}
+												title={favoriteModelIds.has(model.id) ? 'Remove from favorites' : 'Add to favorites'}
+											>
+												{#if favoriteModelIds.has(model.id)}
+													<Star class="h-4 w-4 fill-yellow-400 text-yellow-400" />
+												{:else}
+													<StarOff class="h-4 w-4 text-muted-foreground" />
+												{/if}
+											</button>
+										</div>
+									</div>
+								{:else}
+									<div class="px-3 py-2 text-sm text-muted-foreground">
+										No models found matching "{modelSearchQuery}"
+									</div>
+								{/each}
+							</div>
+						{/if}
+					</div>
+				</div>
+
+				<!-- Temperature -->
+				<div class="space-y-3">
+					<div class="flex items-center justify-between">
+						<Label class="text-sm font-medium">Temperature</Label>
+						<span class="text-sm text-muted-foreground">{temperature}</span>
+					</div>
+					<input 
+						type="range" 
+						min="0" 
+						max="2" 
+						step="0.1" 
+						bind:value={temperature} 
+						class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+					/>
+					<p class="text-xs text-muted-foreground">Controls response randomness</p>
+				</div>
+
+				<!-- Max Response Tokens -->
+				<div class="space-y-3">
+					<div class="flex items-center justify-between">
+						<Label class="text-sm font-medium">Max Tokens</Label>
+						<span class="text-sm text-muted-foreground">{maxCompletionTokens.toLocaleString()}</span>
+					</div>
+					<input 
+						type="range" 
+						min="100" 
+						max={maxCompletionTokensLimit()} 
+						step="100" 
+						bind:value={maxCompletionTokens} 
+						class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+					/>
+					<p class="text-xs text-muted-foreground">
+						Limit: {maxCompletionTokensLimit().toLocaleString()}
+					</p>
+				</div>
+
+				<!-- Stream Setting -->
+				<div class="space-y-3">
+					<div class="flex items-center space-x-2">
+						<input type="checkbox" id="stream-setting" bind:checked={streamResponse} class="rounded" />
+						<Label for="stream-setting" class="text-sm">Stream responses</Label>
+					</div>
+					<p class="text-xs text-muted-foreground">Real-time message streaming</p>
+				</div>
+			</div>
+		</aside>
+	{/if}
+
+	<!-- Settings Toggle Button (when panel is closed) -->
+	{#if !showRightPanel}
+		<div class="fixed right-4 bottom-20 z-10">
+			<div class="flex flex-col items-end space-y-2">
+				<!-- Compact Settings Info -->
+				<div class="bg-background border rounded-lg p-2 shadow-lg text-xs">
+					<div class="text-muted-foreground">
+						<div class="truncate max-w-32" title={selectedModel?.name || selectedModel?.id}>
+							{selectedModel?.name || selectedModel?.id || 'No model'}
+						</div>
+						<div>T: {temperature} | Tokens: {maxCompletionTokens}</div>
+					</div>
+				</div>
+				
+				<!-- Toggle Button -->
+				<Button 
+					variant="outline" 
+					size="sm" 
+					onclick={() => showRightPanel = true}
+					class="shadow-lg bg-background border-2"
+					title="Open Settings Panel"
+				>
+					<Settings class="h-4 w-4" />
+				</Button>
+			</div>
+		</div>
+	{/if}
 </div>
 
 <!-- Settings Dialog -->
@@ -1160,49 +1563,16 @@
 			<Dialog.Description>Customize your chat experience</Dialog.Description>
 		</Dialog.Header>
 		<div class="space-y-4">
-			<div>
-				<Label>Model</Label>
-				<Select.Root type="single" name="model" bind:value={selectedModelId}>
-					<Select.Trigger class="w-full">
-						{triggerContent()}
-					</Select.Trigger>
-					<Select.Content>
-						<Select.Group>
-							<Select.Label>Available Models</Select.Label>
-							{#each availableModels as model (model.id)}
-								<Select.Item
-									value={model.id}
-									label={model.name || model.id}
-								>
-									{model.name || model.id}
-								</Select.Item>
-							{/each}
-						</Select.Group>
-					</Select.Content>
-				</Select.Root>
+			<div class="p-3 bg-muted/50 rounded-lg">
+				<p class="text-sm text-muted-foreground mb-2">
+					<strong>Quick Settings:</strong> Model, temperature, and max tokens are now available directly in the chat interface above for easier access.
+				</p>
 			</div>
-
-			<div>
-				<Label for="temperature-range">Temperature: {temperature}</Label>
-				<input id="temperature-range" type="range" min="0" max="2" step="0.1" bind:value={temperature} class="w-full" />
-			</div>
-
-			<div>
-				<Label for="tokens-range">Max Tokens: {maxTokens}</Label>
-				<input
-					id="tokens-range"
-					type="range"
-					min="100"
-					max="4000"
-					step="100"
-					bind:value={maxTokens}
-					class="w-full"
-				/>
-			</div>
-
+			
 			<div class="flex items-center space-x-2">
 				<input type="checkbox" id="stream" bind:checked={streamResponse} class="rounded" />
 				<Label for="stream">Stream responses</Label>
+				<span class="text-xs text-muted-foreground ml-2">Enable real-time message streaming</span>
 			</div>
 		</div>
 	</Dialog.Content>

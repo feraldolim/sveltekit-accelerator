@@ -7,7 +7,10 @@ export type Database = {
 					user_id: string;
 					title: string;
 					model: string;
-					system_prompt: string | null;
+					default_system_prompt_id: string | null;
+					default_structured_output_id: string | null;
+					message_count: number;
+					is_pinned: boolean;
 					created_at: string;
 					updated_at: string;
 				};
@@ -16,7 +19,10 @@ export type Database = {
 					user_id: string;
 					title?: string;
 					model?: string;
-					system_prompt?: string | null;
+					default_system_prompt_id?: string | null;
+					default_structured_output_id?: string | null;
+					message_count?: number;
+					is_pinned?: boolean;
 					created_at?: string;
 					updated_at?: string;
 				};
@@ -25,7 +31,10 @@ export type Database = {
 					user_id?: string;
 					title?: string;
 					model?: string;
-					system_prompt?: string | null;
+					default_system_prompt_id?: string | null;
+					default_structured_output_id?: string | null;
+					message_count?: number;
+					is_pinned?: boolean;
 					created_at?: string;
 					updated_at?: string;
 				};
@@ -37,6 +46,10 @@ export type Database = {
 					role: 'user' | 'assistant' | 'system';
 					content: string;
 					model: string | null;
+					system_prompt_id: string | null;
+					system_prompt_version: number | null;
+					structured_output_id: string | null;
+					structured_output_version: number | null;
 					token_count: number | null;
 					created_at: string;
 				};
@@ -46,6 +59,10 @@ export type Database = {
 					role: 'user' | 'assistant' | 'system';
 					content: string;
 					model?: string | null;
+					system_prompt_id?: string | null;
+					system_prompt_version?: number | null;
+					structured_output_id?: string | null;
+					structured_output_version?: number | null;
 					token_count?: number | null;
 					created_at?: string;
 				};
@@ -55,8 +72,41 @@ export type Database = {
 					role?: 'user' | 'assistant' | 'system';
 					content?: string;
 					model?: string | null;
+					system_prompt_id?: string | null;
+					system_prompt_version?: number | null;
+					structured_output_id?: string | null;
+					structured_output_version?: number | null;
 					token_count?: number | null;
 					created_at?: string;
+				};
+			};
+			user_favorite_models: {
+				Row: {
+					id: string;
+					user_id: string;
+					model_id: string;
+					display_name: string | null;
+					is_default: boolean;
+					created_at: string;
+					updated_at: string;
+				};
+				Insert: {
+					id?: string;
+					user_id: string;
+					model_id: string;
+					display_name?: string | null;
+					is_default?: boolean;
+					created_at?: string;
+					updated_at?: string;
+				};
+				Update: {
+					id?: string;
+					user_id?: string;
+					model_id?: string;
+					display_name?: string | null;
+					is_default?: boolean;
+					created_at?: string;
+					updated_at?: string;
 				};
 			};
 		};
