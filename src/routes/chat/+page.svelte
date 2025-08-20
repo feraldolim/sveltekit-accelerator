@@ -8,6 +8,8 @@
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import * as Select from '$lib/components/ui/select/index.js';
 	import * as Alert from '$lib/components/ui/alert/index.js';
+	import * as Popover from '$lib/components/ui/popover/index.js';
+	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Label } from '$lib/components/ui/label';
 	import { Switch } from '$lib/components/ui/switch';
@@ -43,7 +45,13 @@
 		Lock,
 		History,
 		Star,
-		StarOff
+		StarOff,
+		Terminal,
+		ExternalLink,
+		Pencil,
+		MessageCircle,
+		List,
+		Trash2
 	} from 'lucide-svelte';
 	import { toast } from 'svelte-sonner';
 	import type { PageData } from './$types';
@@ -107,6 +115,8 @@
 		updated_at: string;
 		message_count: number;
 		is_pinned?: boolean;
+		default_system_prompt_id?: string;
+		default_structured_output_id?: string;
 	}
 
 	// Core state
@@ -146,6 +156,11 @@
 	let isDragOver = $state(false);
 	let showFavoritesOnly = $state(false);
 	let favoriteModelIds = $state(new Set<string>());
+	let modalityFilter = $state<'all' | 'text' | 'image' | 'audio' | 'file'>('all');
+	let showDeveloperTools = $state(false);
+	let copiedCurl = $state(false);
+	let editingConversationId = $state<string | null>(null);
+	let editingModel = $state('');
 
 	// Data from server
 	const availableModels = $derived((data.models || []) as any[]);
@@ -178,13 +193,35 @@
 			: conversations
 	);
 
-	// Filter models based on search and favorites
+	// Filter models based on search, favorites, and modality
 	const filteredModels = $derived(() => {
 		let models = availableModels;
 		
 		// Filter by favorites if toggle is enabled
 		if (showFavoritesOnly) {
 			models = models.filter(model => favoriteModelIds.has(model.id));
+		}
+		
+		// Filter by modality
+		if (modalityFilter !== 'all') {
+			models = models.filter(model => {
+				const capabilities = model.capabilities;
+				if (!capabilities || !capabilities.input_modalities) return false;
+				
+				const inputModalities = capabilities.input_modalities || [];
+				switch (modalityFilter) {
+					case 'text':
+						return inputModalities.includes('text');
+					case 'image':
+						return inputModalities.includes('image');
+					case 'audio':
+						return inputModalities.includes('audio');
+					case 'file':
+						return inputModalities.includes('file');
+					default:
+						return true;
+				}
+			});
 		}
 		
 		// Filter by search query
@@ -318,6 +355,105 @@
 		}
 	});
 
+	// Update conversation model when model selection changes
+	$effect(() => {
+		if (currentChatId && selectedModelId) {
+			updateConversationModel(currentChatId, selectedModelId);
+		}
+	});
+
+	async function updateConversationModel(chatId: string, modelId: string) {
+		try {
+			const response = await fetch(`/api/chats/${chatId}`, {
+				method: 'PATCH',
+				headers: {
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify({ model: modelId })
+			});
+
+			if (!response.ok) {
+				console.warn('Failed to update conversation model');
+				return;
+			}
+
+			// Update the conversation in the local list
+			const conversationIndex = conversations.findIndex(c => c.id === chatId);
+			if (conversationIndex !== -1) {
+				conversations[conversationIndex] = {
+					...conversations[conversationIndex],
+					model: modelId
+				};
+				conversations = [...conversations];
+			}
+		} catch (error) {
+			console.warn('Failed to update conversation model:', error);
+		}
+	}
+
+	function openEditConversation(conversation: Conversation, event: Event) {
+		event.stopPropagation(); // Prevent conversation selection
+		editingConversationId = conversation.id;
+		editingModel = conversation.model;
+	}
+
+	async function saveConversationModel(conversationId: string, newModelId: string) {
+		try {
+			await updateConversationModel(conversationId, newModelId);
+			
+			// If this is the current conversation, update the selected model too
+			if (currentChatId === conversationId) {
+				selectedModelId = newModelId;
+				selectedModel = availableModels.find(m => m.id === newModelId) || availableModels[0];
+			}
+			
+			editingConversationId = null;
+			toast.success('Conversation model updated');
+		} catch (error) {
+			toast.error('Failed to update conversation model');
+		}
+	}
+
+	async function deleteConversation(conversationId: string, event: Event) {
+		event.stopPropagation(); // Prevent conversation selection
+		
+		// Get conversation title for confirmation
+		const conversation = conversations.find(c => c.id === conversationId);
+		const title = conversation?.title || 'this conversation';
+		
+		// Show confirmation dialog
+		if (!confirm(`Are you sure you want to delete "${title}"? This action cannot be undone.`)) {
+			return;
+		}
+		
+		try {
+			const response = await fetch(`/api/chats/${conversationId}`, {
+				method: 'DELETE',
+				headers: {
+					'Content-Type': 'application/json'
+				}
+			});
+
+			if (!response.ok) {
+				throw new Error('Failed to delete conversation');
+			}
+
+			// Remove from conversations list
+			conversations = conversations.filter(c => c.id !== conversationId);
+			
+			// If this was the current conversation, clear it
+			if (currentChatId === conversationId) {
+				currentChatId = null;
+				messages = [];
+			}
+
+			toast.success('Conversation deleted successfully');
+		} catch (error) {
+			console.error('Error deleting conversation:', error);
+			toast.error('Failed to delete conversation');
+		}
+	}
+
 	// Favorite models functions
 	async function toggleFavoriteModel(modelId: string) {
 		try {
@@ -360,28 +496,75 @@
 		}
 	}
 
-	async function setAsDefault(modelId: string) {
-		try {
-			const response = await fetch('/api/favorite-models', {
-				method: 'PATCH',
-				headers: {
-					'Content-Type': 'application/json'
-				},
-				body: JSON.stringify({ modelId, action: 'set_default' })
+	// Generate cURL command for current chat state
+	const generateCurlCommand = $derived(() => {
+		const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173';
+		
+		// Build messages array including current input if it exists
+		const allMessages = [...messages];
+		if (currentMessage.trim()) {
+			allMessages.push({
+				role: 'user',
+				content: currentMessage.trim(),
+				id: 'temp-input',
+				timestamp: new Date()
 			});
+		}
+		
+		// Prepare the request body
+		const requestBody = {
+			messages: allMessages.map(msg => ({
+				role: msg.role,
+				content: msg.content
+			})),
+			model: selectedModelId || 'moonshotai/kimi-k2:free',
+			temperature,
+			max_completion_tokens: maxCompletionTokens,
+			stream: streamResponse,
+			...(selectedSystemPrompt?.id && { system_prompt_id: selectedSystemPrompt.id }),
+			...(selectedStructuredOutput?.id && { structured_output_id: selectedStructuredOutput.id })
+		};
 
-			if (!response.ok) throw new Error('Failed to set default model');
-			
-			// Add to favorites if not already favorited
-			if (!favoriteModelIds.has(modelId)) {
-				favoriteModelIds.add(modelId);
-				favoriteModelIds = new Set(favoriteModelIds);
-			}
-			
-			toast.success('Set as default model');
+		// Headers for API key authentication
+		const headers = [
+			'Content-Type: application/json',
+			'Authorization: Bearer YOUR_API_KEY_HERE'
+		];
+
+		if (userApiKey) {
+			headers.push(`x-openrouter-api-key: ${userApiKey}`);
+		}
+
+		// Build cURL command using v1 API
+		const curlHeaders = headers.map(h => `  -H "${h}"`).join(' \\\n');
+		const curlBody = JSON.stringify(requestBody, null, 2)
+			.replace(/"/g, '\\"')
+			.split('\n')
+			.map(line => `    ${line}`)
+			.join('\n');
+
+		return `curl -X POST "${baseUrl}/api/v1/chat/completions" \\\n${curlHeaders} \\\n  -d "\n${curlBody}\n"`;
+	});
+
+	// Generate display version with censored API key
+	const displayCurlCommand = $derived(() => {
+		if (!userApiKey) return generateCurlCommand();
+		
+		// Censor the API key in the display version
+		const fullCommand = generateCurlCommand();
+		const censoredKey = userApiKey.substring(0, 12) + '••••••••••••••••••••••••••••••••••••••••••••••••••••';
+		return fullCommand.replace(userApiKey, censoredKey);
+	});
+
+	// Copy cURL command to clipboard (uses full uncensored command)
+	async function copyCurlCommand() {
+		try {
+			await navigator.clipboard.writeText(generateCurlCommand());
+			copiedCurl = true;
+			toast.success('cURL command copied to clipboard');
+			setTimeout(() => copiedCurl = false, 2000);
 		} catch (error) {
-			console.error('Error setting default:', error);
-			toast.error('Failed to set default model');
+			toast.error('Failed to copy cURL command');
 		}
 	}
 
@@ -857,24 +1040,65 @@
 			currentChatId = conversation.id;
 			messages = data.messages || [];
 			
-			// Update chat metadata if available
-			if (data.chat.system_prompt_id) {
-				const systemPrompt = systemPrompts.find(p => p.id === data.chat.system_prompt_id);
-				if (systemPrompt) {
-					selectedSystemPrompt = systemPrompt;
-				}
+			// Associate files with their respective messages
+			if (data.files && data.files.length > 0) {
+				const filesByMessage = new Map<string, Attachment[]>();
+				
+				// Group files by message_id
+				data.files.forEach((file: any) => {
+					if (file.message_id) {
+						if (!filesByMessage.has(file.message_id)) {
+							filesByMessage.set(file.message_id, []);
+						}
+						
+						// Convert database file record to Attachment format
+						const attachment: Attachment = {
+							id: file.id,
+							type: file.file_type as 'image' | 'pdf' | 'audio' | 'text',
+							name: file.original_name || file.filename || 'Unknown file',
+							size: file.file_size || 0,
+							data: '', // We don't store the actual file data for display
+							url: file.file_path
+						};
+						
+						filesByMessage.get(file.message_id)!.push(attachment);
+					}
+				});
+				
+				// Add attachments to their respective messages
+				messages = messages.map(message => ({
+					...message,
+					attachments: filesByMessage.get(message.id) || message.attachments || []
+				}));
 			}
 			
-			if (data.chat.structured_output_id) {
-				const structuredOutput = structuredOutputs.find(s => s.id === data.chat.structured_output_id);
+			// Update chat metadata if available
+			if (data.chat.default_system_prompt_id) {
+				const systemPrompt = systemPrompts.find(p => p.id === data.chat.default_system_prompt_id);
+				if (systemPrompt) {
+					selectedSystemPrompt = systemPrompt;
+					toast.success(`System prompt activated: ${systemPrompt.name}`);
+				}
+			} else {
+				selectedSystemPrompt = null;
+			}
+			
+			if (data.chat.default_structured_output_id) {
+				const structuredOutput = structuredOutputs.find(s => s.id === data.chat.default_structured_output_id);
 				if (structuredOutput) {
 					selectedStructuredOutput = structuredOutput;
 					useStructuredOutput = true;
+					toast.success(`Structured output activated: ${structuredOutput.name}`);
 				}
+			} else {
+				selectedStructuredOutput = null;
+				useStructuredOutput = false;
 			}
 			
 			if (data.chat.model) {
+				selectedModelId = data.chat.model;
 				selectedModel = availableModels.find(m => m.id === data.chat.model) || availableModels[0];
+				toast.success(`Model switched to: ${selectedModel?.name || data.chat.model}`);
 			}
 			
 			toast.success(`Loaded conversation: ${conversation.title}`);
@@ -973,6 +1197,7 @@
 							/>
 						</div>
 
+						<Tooltip.Provider>
 						<div class="space-y-2">
 							{#each filteredConversations as conversation (conversation.id)}
 								<Card.Root 
@@ -981,18 +1206,116 @@
 								>
 									<div class="flex items-start justify-between">
 										<div class="flex-1 min-w-0">
-											<h4 class="font-medium text-sm truncate">{conversation.title}</h4>
-											<p class="text-xs text-muted-foreground">
-												{conversation.message_count} messages • {new Date(conversation.updated_at).toLocaleDateString()}
-											</p>
+											<div class="flex items-center justify-between mb-1">
+												<h4 class="font-medium text-sm truncate flex-1">{conversation.title}</h4>
+												<div class="flex items-center space-x-1 ml-2">
+													<!-- System Prompt Icon -->
+													{#if conversation.default_system_prompt_id}
+														<Tooltip.Root>
+															<Tooltip.Trigger>
+																<MessageCircle class="h-3 w-3 text-blue-500" />
+															</Tooltip.Trigger>
+															<Tooltip.Content>
+																<p class="text-xs">
+																	System Prompt: {systemPrompts.find(p => p.id === conversation.default_system_prompt_id)?.name || 'Unknown'}
+																</p>
+															</Tooltip.Content>
+														</Tooltip.Root>
+													{/if}
+													
+													<!-- Structured Output Icon -->
+													{#if conversation.default_structured_output_id}
+														<Tooltip.Root>
+															<Tooltip.Trigger>
+																<List class="h-3 w-3 text-green-500" />
+															</Tooltip.Trigger>
+															<Tooltip.Content>
+																<p class="text-xs">
+																	Schema: {structuredOutputs.find(s => s.id === conversation.default_structured_output_id)?.name || 'Unknown'}
+																</p>
+															</Tooltip.Content>
+														</Tooltip.Root>
+													{/if}
+													
+													<!-- Edit Button -->
+													<Popover.Root open={editingConversationId === conversation.id} onOpenChange={(open) => {
+														if (!open) editingConversationId = null;
+													}}>
+														<Popover.Trigger>
+															<Button 
+																variant="ghost" 
+																size="sm" 
+																class="h-5 w-5 p-0 hover:bg-muted-foreground/20"
+																onclick={(e) => openEditConversation(conversation, e)}
+															>
+																<Pencil class="h-3 w-3" />
+															</Button>
+														</Popover.Trigger>
+														<Popover.Content class="w-80">
+															<div class="space-y-3">
+																<h4 class="font-medium text-sm">Edit Conversation</h4>
+																<div class="space-y-2">
+																	<Label class="text-xs">Model</Label>
+																	<select 
+																		bind:value={editingModel}
+																		class="w-full h-8 px-2 rounded border border-border bg-background text-sm"
+																	>
+																		{#each availableModels as model}
+																			<option value={model.id}>
+																				{model.name || model.id}
+																			</option>
+																		{/each}
+																	</select>
+																</div>
+																<div class="flex justify-end space-x-2">
+																	<Button 
+																		variant="outline" 
+																		size="sm" 
+																		onclick={() => editingConversationId = null}
+																	>
+																		Cancel
+																	</Button>
+																	<Button 
+																		size="sm" 
+																		onclick={() => saveConversationModel(conversation.id, editingModel)}
+																	>
+																		Save
+																	</Button>
+																</div>
+															</div>
+														</Popover.Content>
+													</Popover.Root>
+
+													<!-- Delete Button -->
+													<Button 
+														variant="ghost" 
+														size="sm" 
+														class="h-5 w-5 p-0 hover:bg-destructive/20 text-muted-foreground hover:text-destructive"
+														onclick={(e) => deleteConversation(conversation.id, e)}
+													>
+														<Trash2 class="h-3 w-3" />
+													</Button>
+													
+													{#if conversation.is_pinned}
+														<Pin class="h-3 w-3 text-primary" />
+													{/if}
+												</div>
+											</div>
+											
+											<div class="flex items-center space-x-2 mt-1">
+												<Badge variant="outline" class="text-xs h-4 px-1">
+													{availableModels.find(m => m.id === conversation.model)?.name || conversation.model}
+												</Badge>
+												<span class="text-xs text-muted-foreground">
+													{conversation.message_count} messages • {new Date(conversation.updated_at).toLocaleDateString()}
+												</span>
+											</div>
 										</div>
-										{#if conversation.is_pinned}
-											<Pin class="h-3 w-3 text-primary ml-2 flex-shrink-0" />
-										{/if}
 									</div>
 								</Card.Root>
 							{/each}
 						</div>
+						</Tooltip.Provider>
 					</div>
 				{:else if sidebarTab === 'prompts'}
 					<!-- System Prompts Tab -->
@@ -1382,11 +1705,52 @@
 			<div class="flex-1 overflow-y-auto p-4 space-y-6">
 				<!-- Model Selection -->
 				<div class="space-y-3">
-					<div class="flex items-center justify-between">
-						<Label class="text-sm font-medium">Model</Label>
-						<div class="flex items-center space-x-2">
-							<Switch bind:checked={showFavoritesOnly} />
-							<Label class="text-xs text-muted-foreground">Favorites Only</Label>
+					<div class="space-y-3">
+						<div class="flex items-center justify-between">
+							<Label class="text-sm font-medium">Model</Label>
+							<div class="flex items-center space-x-2">
+								<Switch bind:checked={showFavoritesOnly} />
+								<Label class="text-xs text-muted-foreground">Favorites Only</Label>
+							</div>
+						</div>
+						
+						<!-- Modality Filters -->
+						<div class="flex flex-wrap gap-1">
+							<button
+								type="button"
+								class="px-2 py-1 text-xs rounded-md transition-colors {modalityFilter === 'all' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-muted/80'}"
+								onclick={() => modalityFilter = 'all'}
+							>
+								All
+							</button>
+							<button
+								type="button"
+								class="px-2 py-1 text-xs rounded-md transition-colors {modalityFilter === 'text' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-muted/80'}"
+								onclick={() => modalityFilter = 'text'}
+							>
+								📝 Text
+							</button>
+							<button
+								type="button"
+								class="px-2 py-1 text-xs rounded-md transition-colors {modalityFilter === 'image' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-muted/80'}"
+								onclick={() => modalityFilter = 'image'}
+							>
+								📷 Image
+							</button>
+							<button
+								type="button"
+								class="px-2 py-1 text-xs rounded-md transition-colors {modalityFilter === 'audio' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-muted/80'}"
+								onclick={() => modalityFilter = 'audio'}
+							>
+								🎵 Audio
+							</button>
+							<button
+								type="button"
+								class="px-2 py-1 text-xs rounded-md transition-colors {modalityFilter === 'file' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-muted/80'}"
+								onclick={() => modalityFilter = 'file'}
+							>
+								📄 File
+							</button>
 						</div>
 					</div>
 					
@@ -1438,11 +1802,25 @@
 													{/if}
 												</div>
 												{#if model.capabilities}
-													<div class="flex items-center space-x-2 text-xs text-muted-foreground mt-1">
+													<div class="flex items-center flex-wrap gap-1 text-xs text-muted-foreground mt-1">
 														<span>{model.capabilities.context_length?.toLocaleString() || 'N/A'} ctx</span>
-														{#if model.capabilities.multimodal}
+														
+														<!-- Input modality badges -->
+														{#if model.capabilities.input_modalities}
+															{#if model.capabilities.input_modalities.includes('text')}
+																<Badge variant="outline" class="text-xs h-4">📝</Badge>
+															{/if}
+															{#if model.capabilities.input_modalities.includes('image')}
+																<Badge variant="outline" class="text-xs h-4">📷</Badge>
+															{/if}
+															{#if model.capabilities.input_modalities.includes('audio')}
+																<Badge variant="outline" class="text-xs h-4">🎵</Badge>
+															{/if}
+														{:else if model.capabilities.multimodal}
+															<!-- Fallback for models using old multimodal flag -->
 															<Badge variant="outline" class="text-xs h-4">📷</Badge>
 														{/if}
+														
 														{#if model.pricing}
 															<span>${(parseFloat(model.pricing.completion) * 1000).toFixed(3)}/1K</span>
 														{/if}
@@ -1521,6 +1899,77 @@
 						<Label for="stream-setting" class="text-sm">Stream responses</Label>
 					</div>
 					<p class="text-xs text-muted-foreground">Real-time message streaming</p>
+				</div>
+
+				<!-- Developer Tools Section -->
+				<Separator />
+				<div class="space-y-3">
+					<div class="flex items-center justify-between">
+						<div class="flex items-center space-x-2">
+							<Terminal class="h-4 w-4" />
+							<Label class="text-sm font-medium">Developer Tools</Label>
+						</div>
+						<Button 
+							variant="ghost" 
+							size="sm" 
+							onclick={() => showDeveloperTools = !showDeveloperTools}
+							class="h-6 px-2"
+						>
+							<ChevronRight class="h-3 w-3 transition-transform {showDeveloperTools ? 'rotate-90' : ''}" />
+						</Button>
+					</div>
+
+					{#if showDeveloperTools}
+						<div class="space-y-3">
+							<!-- Developer API Key Status -->
+							<Alert.Root class="border-blue-200 bg-blue-50">
+								<Key class="h-4 w-4" />
+								<Alert.Title>Developer API Access</Alert.Title>
+								<Alert.Description class="flex items-center justify-between">
+									<span class="text-sm">Generate a developer API key for external access</span>
+									<Button variant="outline" size="sm" onclick={() => window.open('/developer/keys', '_blank')} class="ml-2">
+										<ExternalLink class="h-3 w-3 mr-1" />
+										Manage Keys
+									</Button>
+								</Alert.Description>
+							</Alert.Root>
+
+							<!-- cURL Command -->
+							<div class="space-y-2">
+								<div class="flex items-center justify-between">
+									<Label class="text-xs font-medium text-muted-foreground">cURL Command</Label>
+									<Button 
+										variant="ghost" 
+										size="sm" 
+										onclick={copyCurlCommand} 
+										class="h-6 px-2"
+										title="Copy cURL command"
+									>
+										{#if copiedCurl}
+											<Check class="h-3 w-3" />
+										{:else}
+											<Copy class="h-3 w-3" />
+										{/if}
+									</Button>
+								</div>
+								
+								<div class="relative">
+									<pre class="bg-muted p-3 rounded-md text-xs overflow-auto max-w-full max-h-48"><code class="text-foreground font-mono">{displayCurlCommand()}</code></pre>
+								</div>
+								
+								{#if messages.length === 0 && !currentMessage.trim()}
+									<p class="text-xs text-muted-foreground">💡 Start typing or chatting to see the complete cURL command</p>
+								{:else if currentMessage.trim()}
+									<p class="text-xs text-muted-foreground">✨ Current input included in the cURL command</p>
+								{/if}
+								
+								<div class="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs">
+									<p class="text-blue-800 font-medium">🔐 API Authentication:</p>
+									<p class="text-blue-700">Replace <code>YOUR_API_KEY_HERE</code> with your developer API key from <a href="/developer/keys" target="_blank" class="underline">Developer Keys</a>. This uses the v1 API with proper API key authentication.</p>
+								</div>
+							</div>
+						</div>
+					{/if}
 				</div>
 			</div>
 		</aside>

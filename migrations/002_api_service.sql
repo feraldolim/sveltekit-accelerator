@@ -420,3 +420,44 @@ BEGIN
     END IF;
   END IF;
 END $$;
+
+-- Add chat relationship columns to file_uploads table
+DO $$
+BEGIN
+  -- Add chat_id column if it doesn't exist
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'file_uploads' AND column_name = 'chat_id') THEN
+    ALTER TABLE file_uploads ADD COLUMN chat_id UUID REFERENCES chats(id) ON DELETE CASCADE;
+  END IF;
+  
+  -- Add message_id column if it doesn't exist  
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'file_uploads' AND column_name = 'message_id') THEN
+    ALTER TABLE file_uploads ADD COLUMN message_id UUID REFERENCES messages(id) ON DELETE CASCADE;
+  END IF;
+  
+  -- Add indexes for chat relationships
+  CREATE INDEX IF NOT EXISTS idx_file_uploads_chat_id ON file_uploads(chat_id);
+  CREATE INDEX IF NOT EXISTS idx_file_uploads_message_id ON file_uploads(message_id);
+END $$;
+
+-- Add cascade delete policy to chats table for related messages
+-- This ensures when a chat is deleted, all associated messages and files are also deleted
+DO $$
+BEGIN
+  -- Check if messages table exists and has chat_id column
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'messages') 
+     AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'messages' AND column_name = 'chat_id') THEN
+    
+    -- Drop existing foreign key constraint if it exists (without CASCADE)
+    IF EXISTS (
+      SELECT 1 FROM information_schema.table_constraints 
+      WHERE constraint_name = 'messages_chat_id_fkey' 
+      AND table_name = 'messages'
+    ) THEN
+      ALTER TABLE messages DROP CONSTRAINT messages_chat_id_fkey;
+    END IF;
+    
+    -- Add foreign key constraint with CASCADE DELETE
+    ALTER TABLE messages ADD CONSTRAINT messages_chat_id_fkey 
+    FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE;
+  END IF;
+END $$;

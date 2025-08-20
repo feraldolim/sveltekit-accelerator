@@ -12,6 +12,7 @@ import { addMessage, createChat, updateChatTitle, updateChatMessageCount } from 
 import { createApiTracker, trackUserActivity } from '$lib/server/analytics.js';
 import { getSystemPrompt } from '$lib/server/system-prompts.js';
 import { getStructuredOutput } from '$lib/server/structured-outputs.js';
+import { recordChatFiles, type FileAttachment } from '$lib/server/chat-files.js';
 
 export const POST: RequestHandler = async ({ request, locals }) => {
 	const startTime = Date.now();
@@ -107,9 +108,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			
 			if (lastMessage && lastMessage.role === 'user' && typeof lastMessage.content === 'string') {
 				const contentArray: Array<{
-					type: 'text' | 'image_url';
+					type: 'text' | 'image_url' | 'file';
 					text?: string;
 					image_url?: { url: string; detail?: 'low' | 'high' | 'auto' };
+					file?: { filename: string; file_data: string };
 				}> = [
 					{ type: 'text', text: lastMessage.content }
 				];
@@ -122,6 +124,32 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 							image_url: {
 								url: attachment.data, // Base64 data URI
 								detail: 'high'
+							}
+						});
+					} else if (attachment.type === 'pdf' && attachment.data) {
+						// For PDFs, use the file type format
+						contentArray.push({
+							type: 'file',
+							file: {
+								filename: attachment.name,
+								file_data: attachment.data // Base64 data URI for PDF
+							}
+						});
+					} else if (attachment.type === 'audio' && attachment.data) {
+						// For audio files, use the input_audio type format per OpenRouter docs
+						// Extract format from filename or assume common formats
+						const audioFormat = attachment.name.toLowerCase().includes('.wav') ? 'wav' : 'mp3';
+						
+						// Remove data URI prefix if present (data:audio/wav;base64,)
+						const base64Data = attachment.data.includes(',') 
+							? attachment.data.split(',')[1] 
+							: attachment.data;
+						
+						contentArray.push({
+							type: 'input_audio',
+							input_audio: {
+								data: base64Data, // Raw base64 data (no data URI prefix)
+								format: audioFormat
 							}
 						});
 					}
@@ -161,7 +189,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 					? lastUserMessage.content.find(c => c.type === 'text')?.text || ''
 					: '';
 
-			await addMessage(
+			const userMessage = await addMessage(
 				currentChatId,
 				'user',
 				textContent,
@@ -172,6 +200,52 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 				structuredOutputData?.id,
 				structuredOutputData?.version
 			);
+
+			// Record file attachments if any
+			if (attachments && attachments.length > 0) {
+				console.log('Processing attachments:', attachments);
+				
+				const fileAttachments: FileAttachment[] = attachments
+					.filter(att => att.type && att.name && att.data && ['pdf', 'image', 'audio'].includes(att.type))
+					.map(att => {
+						// Calculate file size from base64 data if not provided
+						let fileSize = att.size || 0;
+						if (!fileSize && att.data) {
+							// Rough base64 to bytes conversion: (base64 length * 3 / 4) - padding
+							const base64Data = att.data.includes(',') ? att.data.split(',')[1] : att.data;
+							fileSize = Math.floor((base64Data.length * 3) / 4);
+						}
+						
+						return {
+							filename: att.name,
+							file_type: att.type as 'pdf' | 'image' | 'audio',
+							file_size: fileSize,
+							mime_type: att.type === 'pdf' ? 'application/pdf' 
+								: att.type === 'image' ? 'image/*'
+								: att.type === 'audio' ? 'audio/*' 
+								: 'application/octet-stream'
+						};
+					});
+				
+				console.log('Filtered file attachments:', fileAttachments);
+				
+				if (fileAttachments.length > 0) {
+					console.log('Recording chat files:', {
+						userId: locals.user.id,
+						chatId: currentChatId,
+						messageId: userMessage.id,
+						fileCount: fileAttachments.length
+					});
+					
+					try {
+						const result = await recordChatFiles(locals.user.id, currentChatId, userMessage.id, fileAttachments);
+						console.log('Successfully recorded chat files:', result);
+					} catch (error) {
+						console.error('Failed to record chat files:', error);
+						// Don't throw here - we don't want to break the chat if file recording fails
+					}
+				}
+			}
 
 			// Update chat title if this is the first message
 			if (isFirstMessage) {
@@ -311,12 +385,16 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		
 		// Track error
 		if (locals.user?.id) {
-			await tracker.track({
-				userId: locals.user.id,
-				model: model || 'moonshotai/kimi-k2:free',
-				statusCode: 500,
-				error: err instanceof Error ? err.message : 'Unknown error'
-			});
+			try {
+				await tracker.track({
+					userId: locals.user.id,
+					model: 'unknown',
+					statusCode: 500,
+					error: err instanceof Error ? err.message : 'Unknown error'
+				});
+			} catch (trackingError) {
+				console.error('Failed to track error:', trackingError);
+			}
 		}
 
 		if (err instanceof Error) {

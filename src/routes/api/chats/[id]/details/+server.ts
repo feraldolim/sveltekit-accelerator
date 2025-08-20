@@ -2,15 +2,17 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { requireAuth } from '$lib/server/auth.js';
 import { getChat, getChatMessages } from '$lib/server/chats.js';
+import { getChatFiles } from '$lib/server/chat-files.js';
 
 export const GET: RequestHandler = async (event) => {
 	try {
 		const { user } = await requireAuth(event);
 		const chatId = event.params.id;
 
-		const [chat, messages] = await Promise.all([
+		const [chat, messages, files] = await Promise.all([
 			getChat(chatId, user.id),
-			getChatMessages(chatId, user.id)
+			getChatMessages(chatId, user.id),
+			getChatFiles(chatId)
 		]);
 
 		if (!chat) {
@@ -19,7 +21,8 @@ export const GET: RequestHandler = async (event) => {
 
 		return json({
 			chat,
-			messages
+			messages,
+			files
 		});
 	} catch (err) {
 		console.error('Get chat details error:', err);

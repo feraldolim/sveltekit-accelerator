@@ -1,7 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { requireAuth } from '$lib/server/auth.js';
-import { getChat, getChatMessages, deleteChat } from '$lib/server/chats.js';
+import { getChat, getChatMessages, deleteChat, updateChat } from '$lib/server/chats.js';
 
 export const GET: RequestHandler = async (event) => {
 	try {
@@ -24,6 +24,22 @@ export const GET: RequestHandler = async (event) => {
 			error(404, 'Chat not found');
 		}
 		error(500, 'Failed to fetch chat');
+	}
+};
+
+export const PATCH: RequestHandler = async (event) => {
+	try {
+		const { user } = await requireAuth(event);
+		const chatId = event.params.id;
+		const body = await event.request.json();
+
+		// Update the chat with the new data
+		const updatedChat = await updateChat(chatId, user.id, body);
+		
+		return json(updatedChat);
+	} catch (err) {
+		console.error('Update chat error:', err);
+		error(500, 'Failed to update chat');
 	}
 };
 
