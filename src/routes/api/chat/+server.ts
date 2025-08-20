@@ -9,6 +9,8 @@ import {
 } from '$lib/server/llm.js';
 import { addMessage, createChat, updateChatTitle } from '$lib/server/chats.js';
 import { createApiTracker, trackUserActivity } from '$lib/server/analytics.js';
+import { getSystemPrompt } from '$lib/server/system-prompts.js';
+import { getStructuredOutput } from '$lib/server/structured-outputs.js';
 
 export const POST: RequestHandler = async ({ request, locals }) => {
 	const startTime = Date.now();
@@ -30,7 +32,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			temperature = 0.7, 
 			max_tokens,
 			chat_id,
-			system_prompt 
+			system_prompt,
+			system_prompt_id,
+			structured_output_id,
+			response_format,
+			attachments = []
 		} = await request.json();
 
 		// Validate input
@@ -52,6 +58,75 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			}
 		}
 
+		// Process system prompt if ID is provided
+		let resolvedSystemPrompt = system_prompt;
+		if (system_prompt_id) {
+			try {
+				const promptData = await getSystemPrompt(locals.user.id, system_prompt_id, true);
+				if (promptData) {
+					resolvedSystemPrompt = promptData.content;
+				}
+			} catch (err) {
+				console.warn('Failed to fetch system prompt:', err);
+			}
+		}
+
+		// Process structured output if ID is provided
+		let resolvedResponseFormat = response_format;
+		if (structured_output_id) {
+			try {
+				const schemaData = await getStructuredOutput(locals.user.id, structured_output_id, true);
+				if (schemaData) {
+					resolvedResponseFormat = {
+						type: 'json_schema',
+						json_schema: {
+							name: schemaData.name,
+							strict: true,
+							schema: schemaData.json_schema
+						}
+					};
+				}
+			} catch (err) {
+				console.warn('Failed to fetch structured output schema:', err);
+			}
+		}
+
+		// Process attachments into multimodal content
+		let processedMessages = [...messages];
+		if (attachments && attachments.length > 0) {
+			// Find the last user message and convert it to multimodal format
+			const lastUserIndex = processedMessages.length - 1;
+			const lastMessage = processedMessages[lastUserIndex];
+			
+			if (lastMessage && lastMessage.role === 'user' && typeof lastMessage.content === 'string') {
+				const contentArray: Array<{
+					type: 'text' | 'image_url';
+					text?: string;
+					image_url?: { url: string; detail?: 'low' | 'high' | 'auto' };
+				}> = [
+					{ type: 'text', text: lastMessage.content }
+				];
+
+				// Add each attachment
+				for (const attachment of attachments) {
+					if (attachment.type === 'image' && attachment.data) {
+						contentArray.push({
+							type: 'image_url',
+							image_url: {
+								url: attachment.data, // Base64 data URI
+								detail: 'high'
+							}
+						});
+					}
+				}
+
+				processedMessages[lastUserIndex] = {
+					...lastMessage,
+					content: contentArray
+				};
+			}
+		}
+
 		// Create or use existing chat
 		let currentChatId = chat_id;
 		let isFirstMessage = false;
@@ -62,7 +137,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 				locals.user.id,
 				'New Chat',
 				model || 'moonshotai/kimi-k2:free',
-				system_prompt
+				resolvedSystemPrompt
 			);
 			currentChatId = newChat.id;
 			isFirstMessage = true;
@@ -71,21 +146,28 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		// Get the last user message to save to database
 		const lastUserMessage = messages[messages.length - 1];
 		if (lastUserMessage && lastUserMessage.role === 'user') {
+			// Extract text content for database storage
+			const textContent = typeof lastUserMessage.content === 'string' 
+				? lastUserMessage.content 
+				: Array.isArray(lastUserMessage.content)
+					? lastUserMessage.content.find(c => c.type === 'text')?.text || ''
+					: '';
+
 			await addMessage(
 				currentChatId,
 				'user',
-				lastUserMessage.content,
+				textContent,
 				model || 'moonshotai/kimi-k2:free'
 			);
 
 			// Update chat title if this is the first message
 			if (isFirstMessage) {
-				await updateChatTitle(currentChatId, locals.user.id, lastUserMessage.content);
+				await updateChatTitle(currentChatId, locals.user.id, textContent);
 			}
 		}
 
 		// Truncate messages to prevent token limit issues
-		const truncatedMessages = truncateMessages(messages, 4000);
+		const truncatedMessages = truncateMessages(processedMessages, 4000);
 
 		// Prepare the completion request
 		const completionRequest = {
@@ -94,6 +176,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			temperature,
 			max_tokens,
 			stream,
+			response_format: resolvedResponseFormat,
 			...(userApiKey && { apiKey: userApiKey })
 		};
 

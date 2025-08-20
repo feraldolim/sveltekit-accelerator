@@ -241,7 +241,8 @@ export async function processPDF(
 					temperature: 0.3
 				});
 
-				analysis = completion.choices[0]?.message?.content;
+				const content = completion.choices[0]?.message?.content;
+				analysis = typeof content === 'string' ? content : 'No analysis available';
 			} catch (error) {
 				console.warn('Failed to analyze PDF content:', error);
 			}
@@ -308,7 +309,8 @@ export async function processImage(
 					max_tokens: 1000
 				});
 
-				analysis = completion.choices[0]?.message?.content || 'No analysis available';
+				const content = completion.choices[0]?.message?.content;
+				analysis = typeof content === 'string' ? content : 'No analysis available';
 			} catch (error) {
 				console.warn('Failed to analyze image:', error);
 				analysis = 'Image uploaded but analysis failed';
@@ -391,7 +393,8 @@ export async function processAudio(
 					temperature: 0.3
 				});
 
-				analysis = completion.choices[0]?.message?.content;
+				const content = completion.choices[0]?.message?.content;
+				analysis = typeof content === 'string' ? content : 'No analysis available';
 			} catch (error) {
 				console.warn('Failed to analyze audio content:', error);
 			}

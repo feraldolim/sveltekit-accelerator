@@ -47,6 +47,7 @@ export interface StructuredCompletionRequest extends Omit<CompletionRequest, 'st
 	strict?: boolean;
 	max_retries?: number;
 	return_raw_response?: boolean;
+	example_output?: any; // Example output for better generation
 }
 
 export interface StructuredCompletionResponse {
@@ -359,13 +360,14 @@ function parseJsonResponse(response: string): { success: boolean; data?: any; er
  * Create structured completion with validation
  */
 export async function createStructuredCompletion(
-	request: StructuredCompletionRequest
+	request: StructuredCompletionRequest,
+	userId?: string
 ): Promise<StructuredCompletionResponse> {
 	let schema: any;
 
 	// Get schema from ID or use direct schema
-	if (request.schema_id && request.user_id) {
-		const structuredOutput = await getStructuredOutput(request.user_id, request.schema_id);
+	if (request.schema_id && userId) {
+		const structuredOutput = await getStructuredOutput(userId, request.schema_id);
 		if (!structuredOutput) {
 			throw new Error('Structured output schema not found');
 		}
@@ -428,7 +430,8 @@ ${JSON.stringify(request.example_output, null, 2)}
 
 		try {
 			const completion = await createCompletion(completionRequest);
-			const rawResponse = completion.choices[0]?.message?.content || '';
+			const content = completion.choices[0]?.message?.content;
+			const rawResponse = typeof content === 'string' ? content : '';
 
 			// Parse JSON response
 			const parseResult = parseJsonResponse(rawResponse);

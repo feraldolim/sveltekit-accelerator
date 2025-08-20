@@ -363,7 +363,8 @@ export async function sendMessage(
 			apiKey: request.apiKey
 		});
 
-		const assistantContent = completion.choices[0]?.message?.content || '';
+		const content = completion.choices[0]?.message?.content;
+		const assistantContent = typeof content === 'string' ? content : '';
 
 		// Save assistant response
 		const assistantMessage = await addApiConversationMessage(conversationId, {

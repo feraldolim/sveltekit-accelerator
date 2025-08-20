@@ -10,7 +10,14 @@ const DEFAULT_MODEL = OPENROUTER_DEFAULT_MODEL || 'openai/gpt-3.5-turbo';
 
 export interface ChatMessage {
 	role: 'system' | 'user' | 'assistant';
-	content: string;
+	content: string | Array<{
+		type: 'text' | 'image_url';
+		text?: string;
+		image_url?: {
+			url: string;
+			detail?: 'low' | 'high' | 'auto';
+		};
+	}>;
 }
 
 export interface CompletionRequest {
@@ -22,6 +29,14 @@ export interface CompletionRequest {
 	frequency_penalty?: number;
 	presence_penalty?: number;
 	stream?: boolean;
+	response_format?: {
+		type: 'json_object' | 'json_schema';
+		json_schema?: {
+			name: string;
+			strict?: boolean;
+			schema: any;
+		};
+	};
 	apiKey?: string; // Allow custom API key
 }
 
@@ -195,7 +210,8 @@ export async function generateText(
 		temperature: 0.7
 	});
 
-	return response.choices[0]?.message?.content || '';
+	const content = response.choices[0]?.message?.content;
+	return typeof content === 'string' ? content : '';
 }
 
 /**
@@ -216,7 +232,8 @@ export async function createChatCompletion(
 		max_tokens: options?.maxTokens
 	});
 
-	return response.choices[0]?.message?.content || '';
+	const content = response.choices[0]?.message?.content;
+	return typeof content === 'string' ? content : '';
 }
 
 /**
@@ -241,9 +258,28 @@ export async function getAvailableModels(): Promise<unknown[]> {
 /**
  * Estimate token count (rough approximation)
  */
-export function estimateTokenCount(text: string): number {
-	// Rough approximation: 1 token ≈ 4 characters for English text
-	return Math.ceil(text.length / 4);
+export function estimateTokenCount(content: string | Array<any>): number {
+	if (typeof content === 'string') {
+		// Rough approximation: 1 token ≈ 4 characters for English text
+		return Math.ceil(content.length / 4);
+	}
+	
+	// For multimodal content, estimate based on text parts only
+	if (Array.isArray(content)) {
+		let totalChars = 0;
+		for (const item of content) {
+			if (item.type === 'text' && item.text) {
+				totalChars += item.text.length;
+			}
+			// Add base tokens for image content
+			if (item.type === 'image_url') {
+				totalChars += 100; // Rough estimate for image processing tokens
+			}
+		}
+		return Math.ceil(totalChars / 4);
+	}
+	
+	return 0;
 }
 
 /**

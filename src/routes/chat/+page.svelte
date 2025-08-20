@@ -10,7 +10,39 @@
 	import * as Alert from '$lib/components/ui/alert/index.js';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Label } from '$lib/components/ui/label';
-	import { Send, Bot, User, Settings, RotateCcw, Sparkles, Copy, Check, Key, AlertTriangle } from 'lucide-svelte';
+	import { Switch } from '$lib/components/ui/switch';
+	import { Separator } from '$lib/components/ui/separator';
+	import { 
+		Send, 
+		Bot, 
+		User, 
+		Settings, 
+		RotateCcw, 
+		Sparkles, 
+		Copy, 
+		Check, 
+		Key, 
+		AlertTriangle,
+		Plus,
+		Eye,
+		EyeOff,
+		FileText,
+		Image,
+		Upload,
+		X,
+		ChevronLeft,
+		ChevronRight,
+		MessageSquare,
+		Search,
+		Pin,
+		PinOff,
+		Download,
+		Code2,
+		Braces,
+		Globe,
+		Lock,
+		History
+	} from 'lucide-svelte';
 	import { toast } from 'svelte-sonner';
 	import type { PageData } from './$types';
 
@@ -22,18 +54,65 @@
 		content: string;
 		timestamp: Date;
 		model?: string;
+		attachments?: Attachment[];
 	}
 
+	interface Attachment {
+		id: string;
+		type: 'image' | 'pdf' | 'audio' | 'text';
+		name: string;
+		size: number;
+		data: string; // Base64 data URI
+		url?: string;
+	}
+
+	interface SystemPrompt {
+		id: string;
+		name: string;
+		description?: string;
+		content: string;
+		version: number;
+		category: string;
+		is_public: boolean;
+		usage_count: number;
+	}
+
+	interface StructuredOutput {
+		id: string;
+		name: string;
+		description?: string;
+		json_schema: any;
+		version: number;
+		is_public: boolean;
+		usage_count: number;
+	}
+
+	interface Conversation {
+		id: string;
+		title: string;
+		model: string;
+		system_prompt?: string;
+		created_at: string;
+		updated_at: string;
+		message_count: number;
+		is_pinned?: boolean;
+	}
+
+	// Core state
 	let messages: Message[] = $state([]);
 	let currentMessage = $state('');
 	let isLoading = $state(false);
 	let selectedModel = $state('moonshotai/kimi-k2:free');
 	let systemPrompt = $state('');
-	let showSettings = $state(false);
-	let chatContainer: HTMLElement;
-	let messageInput: any;
-	let copiedMessageId: string | null = $state(null);
 	let currentChatId: string | null = $state(null);
+
+	// UI state
+	let showSettings = $state(false);
+	let showApiKeyDialog = $state(false);
+	let showSidebar = $state(true);
+	let showRightPanel = $state(false);
+	let copiedMessageId: string | null = $state(null);
+	let sidebarTab = $state<'prompts' | 'outputs' | 'conversations'>('conversations');
 
 	// Chat configuration
 	let temperature = $state(0.7);
@@ -42,23 +121,47 @@
 
 	// API Key management
 	let userApiKey = $state('');
-	let showApiKeyDialog = $state(false);
 	let apiKeyTestResult = $state<'idle' | 'testing' | 'success' | 'error'>('idle');
 
+	// Enhanced features
+	let selectedSystemPrompt: SystemPrompt | null = $state(null);
+	let useStructuredOutput = $state(false);
+	let selectedStructuredOutput: StructuredOutput | null = $state(null);
+	let attachments: Attachment[] = $state([]);
+	let searchQuery = $state('');
+	let isDragOver = $state(false);
+
+	// Data from server
 	const availableModels = $derived((data.models || []) as Array<{id: string, name?: string}>);
-	
+	const systemPrompts = $derived((data.systemPrompts || []) as SystemPrompt[]);
+	const structuredOutputs = $derived((data.structuredOutputs || []) as StructuredOutput[]);
+	const conversations = $derived((data.chats || []) as Conversation[]);
+
+	// Computed values
 	const triggerContent = $derived(
 		availableModels.find((m) => m.id === selectedModel)?.name || 
 		availableModels.find((m) => m.id === selectedModel)?.id || 
 		"Select model"
 	);
 	const hasMessages = $derived(messages.length > 0);
+	const hasAttachments = $derived(attachments.length > 0);
+
+	// Filter conversations based on search
+	const filteredConversations = $derived(
+		searchQuery 
+			? conversations.filter(c => c.title.toLowerCase().includes(searchQuery.toLowerCase()))
+			: conversations
+	);
 
 	// Configure marked for better rendering
 	marked.setOptions({
 		breaks: true,
 		gfm: true
 	});
+
+	let chatContainer: HTMLElement;
+	let messageInput: any;
+	let fileInput: HTMLInputElement;
 
 	onMount(() => {
 		// Focus input after mount
@@ -71,6 +174,17 @@
 		if (savedApiKey) {
 			userApiKey = savedApiKey;
 		}
+
+		// Set up drag and drop
+		document.addEventListener('dragover', handleDragOver);
+		document.addEventListener('drop', handleDrop);
+		document.addEventListener('dragleave', handleDragLeave);
+
+		return () => {
+			document.removeEventListener('dragover', handleDragOver);
+			document.removeEventListener('drop', handleDrop);
+			document.removeEventListener('dragleave', handleDragLeave);
+		};
 	});
 
 	// Save API key to localStorage when it changes
@@ -81,6 +195,94 @@
 			localStorage.removeItem('openrouter-api-key');
 		}
 	});
+
+	// Auto-scroll to bottom when new messages arrive
+	$effect(() => {
+		if (messages.length > 0 && chatContainer) {
+			tick().then(() => {
+				chatContainer.scrollTo({
+					top: chatContainer.scrollHeight,
+					behavior: 'smooth'
+				});
+			});
+		}
+	});
+
+	// File upload handlers
+	function handleDragOver(e: DragEvent) {
+		e.preventDefault();
+		isDragOver = true;
+	}
+
+	function handleDragLeave(e: DragEvent) {
+		e.preventDefault();
+		if (!e.relatedTarget) {
+			isDragOver = false;
+		}
+	}
+
+	function handleDrop(e: DragEvent) {
+		e.preventDefault();
+		isDragOver = false;
+		
+		if (e.dataTransfer?.files) {
+			handleFiles(Array.from(e.dataTransfer.files));
+		}
+	}
+
+	function handleFileSelect() {
+		if (fileInput?.files) {
+			handleFiles(Array.from(fileInput.files));
+		}
+	}
+
+	async function handleFiles(files: File[]) {
+		for (const file of files) {
+			if (file.size > 10 * 1024 * 1024) { // 10MB limit
+				toast.error(`File ${file.name} is too large. Maximum size is 10MB.`);
+				continue;
+			}
+
+			// Determine file type
+			let type: 'image' | 'pdf' | 'audio' | 'text' = 'text';
+			if (file.type.startsWith('image/')) {
+				type = 'image';
+			} else if (file.type === 'application/pdf') {
+				type = 'pdf';
+			} else if (file.type.startsWith('audio/')) {
+				type = 'audio';
+			}
+
+			try {
+				const base64 = await fileToBase64(file);
+				const attachment: Attachment = {
+					id: crypto.randomUUID(),
+					type,
+					name: file.name,
+					size: file.size,
+					data: base64
+				};
+				
+				attachments = [...attachments, attachment];
+				toast.success(`Added ${file.name}`);
+			} catch (error) {
+				toast.error(`Failed to process ${file.name}`);
+			}
+		}
+	}
+
+	function fileToBase64(file: File): Promise<string> {
+		return new Promise((resolve, reject) => {
+			const reader = new FileReader();
+			reader.onload = () => resolve(reader.result as string);
+			reader.onerror = reject;
+			reader.readAsDataURL(file);
+		});
+	}
+
+	function removeAttachment(id: string) {
+		attachments = attachments.filter(a => a.id !== id);
+	}
 
 	// Test API key validity
 	async function testApiKey() {
@@ -129,20 +331,12 @@
 		messages = [];
 		currentChatId = null;
 		currentMessage = '';
+		attachments = [];
+		selectedSystemPrompt = null;
+		useStructuredOutput = false;
+		selectedStructuredOutput = null;
 		toast.success('Started new chat');
 	}
-
-	// Auto-scroll to bottom when new messages arrive
-	$effect(() => {
-		if (messages.length > 0 && chatContainer) {
-			tick().then(() => {
-				chatContainer.scrollTo({
-					top: chatContainer.scrollHeight,
-					behavior: 'smooth'
-				});
-			});
-		}
-	});
 
 	async function sendMessage() {
 		if (!currentMessage.trim() || isLoading) return;
@@ -158,37 +352,49 @@
 			id: crypto.randomUUID(),
 			role: 'user',
 			content: currentMessage.trim(),
-			timestamp: new Date()
+			timestamp: new Date(),
+			attachments: attachments.length > 0 ? [...attachments] : undefined
 		};
 
 		messages = [...messages, userMessage];
+		const messageToSend = currentMessage.trim();
 		currentMessage = '';
+		const messagesToSend = [...messages];
+		const currentAttachments = [...attachments];
+		attachments = []; // Clear attachments after sending
 		isLoading = true;
 
 		try {
 			// Prepare messages for API
 			const apiMessages = [];
 
-			// Add system prompt if provided
-			if (systemPrompt.trim()) {
+			// Add system prompt if selected
+			if (selectedSystemPrompt) {
 				apiMessages.push({
 					role: 'system',
-					content: systemPrompt.trim()
+					content: selectedSystemPrompt.content
 				});
 			}
 
 			// Add conversation history
 			apiMessages.push(
-				...messages.map((msg) => ({
+				...messagesToSend.map((msg) => ({
 					role: msg.role,
 					content: msg.content
 				}))
 			);
 
+			// Prepare attachments for API
+			const apiAttachments = currentAttachments.map(att => ({
+				type: att.type,
+				data: att.data,
+				name: att.name
+			}));
+
 			if (streamResponse) {
-				await handleStreamingResponse(apiMessages);
+				await handleStreamingResponse(apiMessages, apiAttachments);
 			} else {
-				await handleRegularResponse(apiMessages);
+				await handleRegularResponse(apiMessages, apiAttachments);
 			}
 		} catch (error) {
 			console.error('Chat error:', error);
@@ -200,7 +406,7 @@
 		}
 	}
 
-	async function handleStreamingResponse(apiMessages: unknown[]) {
+	async function handleStreamingResponse(apiMessages: unknown[], apiAttachments: unknown[]) {
 		const headers: Record<string, string> = {
 			'Content-Type': 'application/json'
 		};
@@ -210,18 +416,30 @@
 			headers['X-OpenRouter-API-Key'] = userApiKey.trim();
 		}
 
+		const requestBody: any = {
+			messages: apiMessages,
+			model: selectedModel,
+			temperature,
+			max_tokens: maxTokens,
+			stream: true,
+			chat_id: currentChatId,
+			attachments: apiAttachments
+		};
+
+		// Add system prompt ID if selected
+		if (selectedSystemPrompt) {
+			requestBody.system_prompt_id = selectedSystemPrompt.id;
+		}
+
+		// Add structured output if enabled
+		if (useStructuredOutput && selectedStructuredOutput) {
+			requestBody.structured_output_id = selectedStructuredOutput.id;
+		}
+
 		const response = await fetch('/api/chat', {
 			method: 'POST',
 			headers,
-			body: JSON.stringify({
-				messages: apiMessages,
-				model: selectedModel,
-				temperature,
-				max_tokens: maxTokens,
-				stream: true,
-				chat_id: currentChatId,
-				system_prompt: systemPrompt.trim() || undefined
-			})
+			body: JSON.stringify(requestBody)
 		});
 
 		if (!response.ok) {
@@ -285,7 +503,7 @@
 		}
 	}
 
-	async function handleRegularResponse(apiMessages: unknown[]) {
+	async function handleRegularResponse(apiMessages: unknown[], apiAttachments: unknown[]) {
 		const headers: Record<string, string> = {
 			'Content-Type': 'application/json'
 		};
@@ -295,18 +513,30 @@
 			headers['X-OpenRouter-API-Key'] = userApiKey.trim();
 		}
 
+		const requestBody: any = {
+			messages: apiMessages,
+			model: selectedModel,
+			temperature,
+			max_tokens: maxTokens,
+			stream: false,
+			chat_id: currentChatId,
+			attachments: apiAttachments
+		};
+
+		// Add system prompt ID if selected
+		if (selectedSystemPrompt) {
+			requestBody.system_prompt_id = selectedSystemPrompt.id;
+		}
+
+		// Add structured output if enabled
+		if (useStructuredOutput && selectedStructuredOutput) {
+			requestBody.structured_output_id = selectedStructuredOutput.id;
+		}
+
 		const response = await fetch('/api/chat', {
 			method: 'POST',
 			headers,
-			body: JSON.stringify({
-				messages: apiMessages,
-				model: selectedModel,
-				temperature,
-				max_tokens: maxTokens,
-				stream: false,
-				chat_id: currentChatId,
-				system_prompt: systemPrompt.trim() || undefined
-			})
+			body: JSON.stringify(requestBody)
 		});
 
 		if (!response.ok) {
@@ -363,185 +593,317 @@
 	function renderMarkdown(content: string): string {
 		return marked(content) as string;
 	}
+
+	function formatFileSize(bytes: number): string {
+		if (bytes === 0) return '0 B';
+		const k = 1024;
+		const sizes = ['B', 'KB', 'MB', 'GB'];
+		const i = Math.floor(Math.log(bytes) / Math.log(k));
+		return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+	}
+
+	function getFileIcon(type: string) {
+		switch (type) {
+			case 'image': return Image;
+			case 'pdf': return FileText;
+			case 'audio': return FileText;
+			default: return FileText;
+		}
+	}
+
+	function selectSystemPrompt(prompt: SystemPrompt) {
+		selectedSystemPrompt = prompt;
+		toast.success(`Selected prompt: ${prompt.name}`);
+	}
+
+	function selectStructuredOutput(output: StructuredOutput) {
+		selectedStructuredOutput = output;
+		toast.success(`Selected schema: ${output.name}`);
+	}
+
+	function loadConversation(conversation: Conversation) {
+		// TODO: Load conversation messages
+		currentChatId = conversation.id;
+		toast.success(`Loaded conversation: ${conversation.title}`);
+	}
 </script>
 
 <svelte:head>
 	<title>AI Chat - SvelteKit Accelerator</title>
-	<meta name="description" content="Chat with AI using OpenRouter" />
+	<meta name="description" content="Enhanced chat with AI using OpenRouter" />
 </svelte:head>
 
-<div class="container mx-auto h-[calc(100vh-4rem)] px-4 py-6">
-	<!-- Settings Dialog -->
-	<Dialog.Root bind:open={showSettings}>
-		<Dialog.Content class="sm:max-w-md">
-			<Dialog.Header>
-				<Dialog.Title>Chat Settings</Dialog.Title>
-				<Dialog.Description>Customize your chat experience</Dialog.Description>
-			</Dialog.Header>
-			<div class="space-y-4">
-				<div>
-					<Label>Model</Label>
-					<Select.Root type="single" name="model" bind:value={selectedModel}>
-						<Select.Trigger class="w-full">
-							{triggerContent}
-						</Select.Trigger>
-						<Select.Content>
-							<Select.Group>
-								<Select.Label>Available Models</Select.Label>
-								{#each availableModels as model (model.id)}
-									<Select.Item
-										value={model.id}
-										label={model.name || model.id}
-									>
-										{model.name || model.id}
-									</Select.Item>
-								{/each}
-							</Select.Group>
-						</Select.Content>
-					</Select.Root>
-				</div>
+<!-- File input (hidden) -->
+<input 
+	type="file" 
+	bind:this={fileInput}
+	onchange={handleFileSelect}
+	multiple
+	accept="image/*,.pdf,audio/*,.txt,.md,.json,.csv"
+	class="hidden"
+/>
 
-				<div>
-					<Label for="temperature-range">Temperature: {temperature}</Label>
-					<input id="temperature-range" type="range" min="0" max="2" step="0.1" bind:value={temperature} class="w-full" />
-				</div>
-
-				<div>
-					<Label for="tokens-range">Max Tokens: {maxTokens}</Label>
-					<input
-						id="tokens-range"
-						type="range"
-						min="100"
-						max="4000"
-						step="100"
-						bind:value={maxTokens}
-						class="w-full"
-					/>
-				</div>
-
-				<div class="flex items-center space-x-2">
-					<input type="checkbox" id="stream" bind:checked={streamResponse} class="rounded" />
-					<Label for="stream">Stream responses</Label>
-				</div>
-
-				<div>
-					<Label for="system-prompt">System Prompt</Label>
-					<Textarea
-						id="system-prompt"
-						bind:value={systemPrompt}
-						placeholder="Enter system prompt to guide the AI's behavior..."
-						class="min-h-[100px]"
-					/>
-				</div>
-			</div>
-		</Dialog.Content>
-	</Dialog.Root>
-
-	<!-- API Key Dialog -->
-	<Dialog.Root bind:open={showApiKeyDialog}>
-		<Dialog.Content class="sm:max-w-md">
-			<Dialog.Header>
-				<Dialog.Title class="flex items-center gap-2">
-					<Key class="h-5 w-5" />
-					OpenRouter API Key
-				</Dialog.Title>
-				<Dialog.Description>
-					Enter your OpenRouter API key to use the chat. Get your key from <a href="https://openrouter.ai/keys" target="_blank" class="text-primary underline">openrouter.ai/keys</a>
-				</Dialog.Description>
-			</Dialog.Header>
-			<div class="space-y-4">
-				<div>
-					<Label for="api-key">API Key</Label>
-					<Input
-						id="api-key"
-						type="password"
-						bind:value={userApiKey}
-						placeholder="sk-or-v1-..."
-						class="mt-2"
-					/>
-					<p class="text-xs text-muted-foreground mt-1">
-						Your API key is stored locally in your browser and never sent to our servers
-					</p>
-				</div>
-				
-				<div class="flex gap-2">
-					<Button 
-						variant="outline" 
-						onclick={testApiKey} 
-						disabled={!userApiKey.trim() || apiKeyTestResult === 'testing'}
-						class="flex-1"
-					>
-						{#if apiKeyTestResult === 'testing'}
-							Testing...
-						{:else if apiKeyTestResult === 'success'}
-							<Check class="h-4 w-4 mr-2" />
-							Valid
-						{:else if apiKeyTestResult === 'error'}
-							<AlertTriangle class="h-4 w-4 mr-2" />
-							Invalid
-						{:else}
-							Test Key
-						{/if}
-					</Button>
-					<Button 
-						onclick={() => showApiKeyDialog = false} 
-						disabled={!userApiKey.trim()}
-						class="flex-1"
-					>
-						Save
-					</Button>
-				</div>
-			</div>
-		</Dialog.Content>
-	</Dialog.Root>
-
-	<!-- Header -->
-	<div class="mb-6 flex items-center justify-between">
-		<div class="flex items-center space-x-3">
-			<div class="bg-primary rounded-lg p-2">
-				<Sparkles class="text-primary-foreground h-6 w-6" />
-			</div>
-			<div>
-				<h1 class="text-2xl font-bold">AI Chat</h1>
-				<p class="text-muted-foreground text-sm">
-					Powered by {selectedModel}
-				</p>
-			</div>
-		</div>
-		<div class="flex items-center space-x-2">
-			<Button variant="outline" size="sm" onclick={() => (showApiKeyDialog = true)}>
-				<Key class="h-4 w-4" />
-			</Button>
-			<Button variant="outline" size="sm" onclick={() => (showSettings = true)}>
-				<Settings class="h-4 w-4" />
-			</Button>
-			<Button variant="outline" size="sm" onclick={clearChat} disabled={messages.length === 0}>
-				<RotateCcw class="h-4 w-4" />
-			</Button>
+<!-- Drag overlay -->
+{#if isDragOver}
+	<div class="fixed inset-0 z-50 bg-primary/20 backdrop-blur-sm flex items-center justify-center">
+		<div class="bg-background border-2 border-dashed border-primary rounded-lg p-8 text-center">
+			<Upload class="h-12 w-12 mx-auto mb-4 text-primary" />
+			<p class="text-lg font-semibold">Drop files to upload</p>
+			<p class="text-sm text-muted-foreground">Images, PDFs, audio files, and text documents</p>
 		</div>
 	</div>
+{/if}
 
-	<!-- API Key Warning -->
-	{#if !userApiKey.trim()}
-		<div class="mb-4">
-			<Alert.Root class="border-orange-200 bg-orange-50 dark:border-orange-900 dark:bg-orange-950">
-				<AlertTriangle class="h-4 w-4" />
-				<Alert.Title>API Key Required</Alert.Title>
-				<Alert.Description class="flex items-center justify-between">
-					<span>You need to provide your own OpenRouter API key to use the chat.</span>
-					<Button size="sm" onclick={() => showApiKeyDialog = true} class="ml-4">
-						<Key class="h-4 w-4 mr-2" />
-						Set API Key
+<div class="flex h-[calc(100vh-4rem)] overflow-hidden">
+	<!-- Left Sidebar -->
+	{#if showSidebar}
+		<aside class="w-80 border-r bg-background flex flex-col">
+			<!-- Sidebar Header -->
+			<div class="p-4 border-b">
+				<div class="flex items-center justify-between mb-4">
+					<div class="flex items-center space-x-2">
+						<Sparkles class="h-5 w-5 text-primary" />
+						<h2 class="font-semibold">AI Chat</h2>
+					</div>
+					<Button variant="ghost" size="sm" onclick={() => showSidebar = false}>
+						<ChevronLeft class="h-4 w-4" />
 					</Button>
-				</Alert.Description>
-			</Alert.Root>
-		</div>
+				</div>
+
+				<!-- New Chat Button -->
+				<Button onclick={startNewChat} class="w-full">
+					<Plus class="h-4 w-4 mr-2" />
+					New Chat
+				</Button>
+			</div>
+
+			<!-- Sidebar Tabs -->
+			<div class="flex border-b">
+				<button 
+					class="flex-1 p-2 text-sm border-b-2 {sidebarTab === 'conversations' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground'}"
+					onclick={() => sidebarTab = 'conversations'}
+				>
+					<MessageSquare class="h-4 w-4 mx-auto mb-1" />
+					Chats
+				</button>
+				<button 
+					class="flex-1 p-2 text-sm border-b-2 {sidebarTab === 'prompts' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground'}"
+					onclick={() => sidebarTab = 'prompts'}
+				>
+					<Code2 class="h-4 w-4 mx-auto mb-1" />
+					Prompts
+				</button>
+				<button 
+					class="flex-1 p-2 text-sm border-b-2 {sidebarTab === 'outputs' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground'}"
+					onclick={() => sidebarTab = 'outputs'}
+				>
+					<Braces class="h-4 w-4 mx-auto mb-1" />
+					Schemas
+				</button>
+			</div>
+
+			<!-- Sidebar Content -->
+			<div class="flex-1 overflow-y-auto">
+				{#if sidebarTab === 'conversations'}
+					<!-- Conversations Tab -->
+					<div class="p-4">
+						<div class="relative mb-4">
+							<Search class="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+							<Input
+								bind:value={searchQuery}
+								placeholder="Search conversations..."
+								class="pl-10"
+							/>
+						</div>
+
+						<div class="space-y-2">
+							{#each filteredConversations as conversation (conversation.id)}
+								<Card.Root 
+									class="p-3 cursor-pointer hover:bg-muted transition-colors {currentChatId === conversation.id ? 'bg-muted border-primary' : ''}"
+									onclick={() => loadConversation(conversation)}
+								>
+									<div class="flex items-start justify-between">
+										<div class="flex-1 min-w-0">
+											<h4 class="font-medium text-sm truncate">{conversation.title}</h4>
+											<p class="text-xs text-muted-foreground">
+												{conversation.message_count} messages • {new Date(conversation.updated_at).toLocaleDateString()}
+											</p>
+										</div>
+										{#if conversation.is_pinned}
+											<Pin class="h-3 w-3 text-primary ml-2 flex-shrink-0" />
+										{/if}
+									</div>
+								</Card.Root>
+							{/each}
+						</div>
+					</div>
+				{:else if sidebarTab === 'prompts'}
+					<!-- System Prompts Tab -->
+					<div class="p-4 space-y-3">
+						{#if selectedSystemPrompt}
+							<div class="p-3 bg-primary/10 border border-primary/20 rounded-md">
+								<div class="flex items-center justify-between mb-2">
+									<span class="text-sm font-medium text-primary">Active Prompt</span>
+									<Button variant="ghost" size="sm" onclick={() => selectedSystemPrompt = null}>
+										<X class="h-3 w-3" />
+									</Button>
+								</div>
+								<p class="text-sm font-medium">{selectedSystemPrompt.name}</p>
+								<p class="text-xs text-muted-foreground">v{selectedSystemPrompt.version}</p>
+							</div>
+						{/if}
+
+						{#each systemPrompts as prompt (prompt.id)}
+							<Card.Root 
+								class="p-3 cursor-pointer hover:bg-muted transition-colors {selectedSystemPrompt?.id === prompt.id ? 'bg-muted border-primary' : ''}"
+								onclick={() => selectSystemPrompt(prompt)}
+							>
+								<div class="flex items-start justify-between">
+									<div class="flex-1 min-w-0">
+										<h4 class="font-medium text-sm truncate">{prompt.name}</h4>
+										{#if prompt.description}
+											<p class="text-xs text-muted-foreground truncate">{prompt.description}</p>
+										{/if}
+										<div class="flex items-center space-x-2 mt-1">
+											<Badge variant="outline" class="text-xs">v{prompt.version}</Badge>
+											<Badge variant="outline" class="text-xs">{prompt.category}</Badge>
+											{#if prompt.is_public}
+												<Globe class="h-3 w-3 text-muted-foreground" />
+											{:else}
+												<Lock class="h-3 w-3 text-muted-foreground" />
+											{/if}
+										</div>
+									</div>
+								</div>
+							</Card.Root>
+						{/each}
+					</div>
+				{:else if sidebarTab === 'outputs'}
+					<!-- Structured Outputs Tab -->
+					<div class="p-4 space-y-3">
+						<div class="flex items-center space-x-2 mb-4">
+							<Switch bind:checked={useStructuredOutput} />
+							<Label class="text-sm">Enable Structured Output</Label>
+						</div>
+
+						{#if useStructuredOutput && selectedStructuredOutput}
+							<div class="p-3 bg-primary/10 border border-primary/20 rounded-md">
+								<div class="flex items-center justify-between mb-2">
+									<span class="text-sm font-medium text-primary">Active Schema</span>
+									<Button variant="ghost" size="sm" onclick={() => selectedStructuredOutput = null}>
+										<X class="h-3 w-3" />
+									</Button>
+								</div>
+								<p class="text-sm font-medium">{selectedStructuredOutput.name}</p>
+								<p class="text-xs text-muted-foreground">v{selectedStructuredOutput.version}</p>
+							</div>
+						{/if}
+
+						{#each structuredOutputs as output (output.id)}
+							<Card.Root 
+								class="p-3 cursor-pointer hover:bg-muted transition-colors {selectedStructuredOutput?.id === output.id ? 'bg-muted border-primary' : ''} {!useStructuredOutput ? 'opacity-50' : ''}"
+								onclick={() => useStructuredOutput && selectStructuredOutput(output)}
+							>
+								<div class="flex items-start justify-between">
+									<div class="flex-1 min-w-0">
+										<h4 class="font-medium text-sm truncate">{output.name}</h4>
+										{#if output.description}
+											<p class="text-xs text-muted-foreground truncate">{output.description}</p>
+										{/if}
+										<div class="flex items-center space-x-2 mt-1">
+											<Badge variant="outline" class="text-xs">v{output.version}</Badge>
+											{#if output.is_public}
+												<Globe class="h-3 w-3 text-muted-foreground" />
+											{:else}
+												<Lock class="h-3 w-3 text-muted-foreground" />
+											{/if}
+										</div>
+									</div>
+								</div>
+							</Card.Root>
+						{/each}
+					</div>
+				{/if}
+			</div>
+		</aside>
 	{/if}
 
-	<!-- Chat Area -->
-	<div class="flex h-[calc(100%-8rem)] flex-col">
-		<!-- Messages -->
-		<div bind:this={chatContainer} class="mb-4 flex-1 overflow-y-auto">
+	<!-- Main Chat Area -->
+	<main class="flex-1 flex flex-col">
+		<!-- Header -->
+		<div class="border-b p-4 flex items-center justify-between">
+			<div class="flex items-center space-x-3">
+				{#if !showSidebar}
+					<Button variant="ghost" size="sm" onclick={() => showSidebar = true}>
+						<ChevronRight class="h-4 w-4" />
+					</Button>
+				{/if}
+				
+				<div class="flex items-center space-x-2">
+					<div class="bg-primary rounded-lg p-2">
+						<Sparkles class="text-primary-foreground h-5 w-5" />
+					</div>
+					<div>
+						<h1 class="text-lg font-bold">AI Chat</h1>
+						<p class="text-sm text-muted-foreground">
+							Powered by {selectedModel}
+						</p>
+					</div>
+				</div>
+			</div>
+
+			<!-- Feature Indicators -->
+			<div class="flex items-center space-x-2">
+				{#if selectedSystemPrompt}
+					<Badge variant="secondary" class="text-xs">
+						<Code2 class="h-3 w-3 mr-1" />
+						{selectedSystemPrompt.name}
+					</Badge>
+				{/if}
+				{#if useStructuredOutput && selectedStructuredOutput}
+					<Badge variant="secondary" class="text-xs">
+						<Braces class="h-3 w-3 mr-1" />
+						{selectedStructuredOutput.name}
+					</Badge>
+				{/if}
+				{#if hasAttachments}
+					<Badge variant="secondary" class="text-xs">
+						<FileText class="h-3 w-3 mr-1" />
+						{attachments.length} files
+					</Badge>
+				{/if}
+
+				<Button variant="outline" size="sm" onclick={() => (showApiKeyDialog = true)}>
+					<Key class="h-4 w-4" />
+				</Button>
+				<Button variant="outline" size="sm" onclick={() => (showSettings = true)}>
+					<Settings class="h-4 w-4" />
+				</Button>
+				<Button variant="outline" size="sm" onclick={clearChat} disabled={messages.length === 0}>
+					<RotateCcw class="h-4 w-4" />
+				</Button>
+			</div>
+		</div>
+
+		<!-- API Key Warning -->
+		{#if !userApiKey.trim()}
+			<div class="p-4">
+				<Alert.Root class="border-orange-200 bg-orange-50 dark:border-orange-900 dark:bg-orange-950">
+					<AlertTriangle class="h-4 w-4" />
+					<Alert.Title>API Key Required</Alert.Title>
+					<Alert.Description class="flex items-center justify-between">
+						<span>You need to provide your own OpenRouter API key to use the chat.</span>
+						<Button size="sm" onclick={() => showApiKeyDialog = true} class="ml-4">
+							<Key class="h-4 w-4 mr-2" />
+							Set API Key
+						</Button>
+					</Alert.Description>
+				</Alert.Root>
+			</div>
+		{/if}
+
+		<!-- Messages Container -->
+		<div bind:this={chatContainer} class="flex-1 overflow-y-auto p-4">
 			{#if messages.length === 0}
 				<!-- Welcome Screen -->
 				<Card.Root class="flex h-full items-center justify-center">
@@ -549,15 +911,22 @@
 						<div class="bg-primary mb-6 inline-flex items-center justify-center rounded-full p-4">
 							<Sparkles class="text-primary-foreground h-8 w-8" />
 						</div>
-						<h2 class="mb-2 text-xl font-semibold">Welcome to AI Chat</h2>
+						<h2 class="mb-2 text-xl font-semibold">Welcome to Enhanced AI Chat</h2>
 						<p class="text-muted-foreground mx-auto mb-6 max-w-md">
-							Start a conversation with our AI assistant. Ask questions, get help, or just chat!
+							Start a conversation with AI. Upload files, use system prompts, or enable structured outputs for advanced functionality.
 						</p>
+						<div class="flex flex-wrap justify-center gap-2">
+							<Badge variant="outline">🖼️ Images</Badge>
+							<Badge variant="outline">📄 PDFs</Badge>
+							<Badge variant="outline">🎵 Audio</Badge>
+							<Badge variant="outline">📝 System Prompts</Badge>
+							<Badge variant="outline">🔧 Structured Output</Badge>
+						</div>
 					</Card.Content>
 				</Card.Root>
 			{:else}
 				<!-- Messages List -->
-				<div class="space-y-4">
+				<div class="space-y-4 max-w-4xl mx-auto">
 					{#each messages as message (message.id)}
 						<div class="group flex items-start space-x-3">
 							<div class="flex-shrink-0">
@@ -587,8 +956,22 @@
 									</span>
 								</div>
 
+								<!-- Attachments -->
+								{#if message.attachments && message.attachments.length > 0}
+									<div class="mb-3 flex flex-wrap gap-2">
+										{#each message.attachments as attachment}
+											{@const IconComponent = getFileIcon(attachment.type)}
+											<div class="flex items-center space-x-2 bg-muted rounded-md p-2">
+												<IconComponent class="h-4 w-4 text-muted-foreground" />
+												<span class="text-xs">{attachment.name}</span>
+												<span class="text-xs text-muted-foreground">({formatFileSize(attachment.size)})</span>
+											</div>
+										{/each}
+									</div>
+								{/if}
+
 								<Card.Root>
-									<Card.Content class="p-2">
+									<Card.Content class="p-3">
 										{#if message.role === 'user'}
 											<div class="prose prose-sm dark:prose-invert max-w-none">
 												<p class="m-0 whitespace-pre-wrap text-sm">{message.content}</p>
@@ -633,7 +1016,7 @@
 									<span class="text-muted-foreground text-xs">thinking...</span>
 								</div>
 								<Card.Root>
-									<Card.Content class="p-2">
+									<Card.Content class="p-3">
 										<div class="flex space-x-1">
 											<div class="bg-muted-foreground h-2 w-2 animate-bounce rounded-full"></div>
 											<div
@@ -654,31 +1037,176 @@
 			{/if}
 		</div>
 
-		<!-- Input Area -->
-		<div class="border-t pt-4">
-			<div class="flex space-x-2 items-end">
-				<div class="flex-1">
-					<Textarea
-						bind:this={messageInput}
-						bind:value={currentMessage}
-						placeholder="Type your message..."
-						class="min-h-[60px] resize-none"
-						onkeydown={handleKeyDown}
-						disabled={isLoading}
-					/>
+		<!-- File Attachments Display -->
+		{#if attachments.length > 0}
+			<div class="border-t p-4">
+				<div class="flex flex-wrap gap-2 max-w-4xl mx-auto">
+					{#each attachments as attachment}
+						{@const IconComponent = getFileIcon(attachment.type)}
+						<div class="flex items-center space-x-2 bg-muted rounded-md p-2">
+							<IconComponent class="h-4 w-4 text-muted-foreground" />
+							<span class="text-sm">{attachment.name}</span>
+							<span class="text-xs text-muted-foreground">({formatFileSize(attachment.size)})</span>
+							<Button variant="ghost" size="sm" onclick={() => removeAttachment(attachment.id)}>
+								<X class="h-3 w-3" />
+							</Button>
+						</div>
+					{/each}
 				</div>
-				<Button
-					onclick={sendMessage}
-					disabled={!currentMessage.trim() || isLoading}
-					size="default"
-				>
-					<Send class="h-4 w-4" />
-				</Button>
+			</div>
+		{/if}
+
+		<!-- Input Area -->
+		<div class="border-t p-4">
+			<div class="max-w-4xl mx-auto">
+				<div class="flex space-x-2 items-end">
+					<div class="flex-1">
+						<Textarea
+							bind:this={messageInput}
+							bind:value={currentMessage}
+							placeholder="Type your message..."
+							class="min-h-[60px] resize-none"
+							onkeydown={handleKeyDown}
+							disabled={isLoading}
+						/>
+					</div>
+					<div class="flex flex-col space-y-2">
+						<Button
+							variant="outline"
+							size="sm"
+							onclick={() => fileInput?.click()}
+							disabled={isLoading}
+						>
+							<Upload class="h-4 w-4" />
+						</Button>
+						<Button
+							onclick={sendMessage}
+							disabled={!currentMessage.trim() || isLoading}
+							size="default"
+						>
+							<Send class="h-4 w-4" />
+						</Button>
+					</div>
+				</div>
+
+				<p class="text-muted-foreground mt-2 text-center text-sm">
+					Press Enter to send, Shift+Enter for new line • Drag & drop files to upload
+				</p>
+			</div>
+		</div>
+	</main>
+</div>
+
+<!-- Settings Dialog -->
+<Dialog.Root bind:open={showSettings}>
+	<Dialog.Content class="sm:max-w-md">
+		<Dialog.Header>
+			<Dialog.Title>Chat Settings</Dialog.Title>
+			<Dialog.Description>Customize your chat experience</Dialog.Description>
+		</Dialog.Header>
+		<div class="space-y-4">
+			<div>
+				<Label>Model</Label>
+				<Select.Root type="single" name="model" bind:value={selectedModel}>
+					<Select.Trigger class="w-full">
+						{triggerContent}
+					</Select.Trigger>
+					<Select.Content>
+						<Select.Group>
+							<Select.Label>Available Models</Select.Label>
+							{#each availableModels as model (model.id)}
+								<Select.Item
+									value={model.id}
+									label={model.name || model.id}
+								>
+									{model.name || model.id}
+								</Select.Item>
+							{/each}
+						</Select.Group>
+					</Select.Content>
+				</Select.Root>
 			</div>
 
-			<p class="text-muted-foreground mt-2 text-center text-sm">
-				Press Enter to send, Shift+Enter for new line
-			</p>
+			<div>
+				<Label for="temperature-range">Temperature: {temperature}</Label>
+				<input id="temperature-range" type="range" min="0" max="2" step="0.1" bind:value={temperature} class="w-full" />
+			</div>
+
+			<div>
+				<Label for="tokens-range">Max Tokens: {maxTokens}</Label>
+				<input
+					id="tokens-range"
+					type="range"
+					min="100"
+					max="4000"
+					step="100"
+					bind:value={maxTokens}
+					class="w-full"
+				/>
+			</div>
+
+			<div class="flex items-center space-x-2">
+				<input type="checkbox" id="stream" bind:checked={streamResponse} class="rounded" />
+				<Label for="stream">Stream responses</Label>
+			</div>
 		</div>
-	</div>
-</div>
+	</Dialog.Content>
+</Dialog.Root>
+
+<!-- API Key Dialog -->
+<Dialog.Root bind:open={showApiKeyDialog}>
+	<Dialog.Content class="sm:max-w-md">
+		<Dialog.Header>
+			<Dialog.Title class="flex items-center gap-2">
+				<Key class="h-5 w-5" />
+				OpenRouter API Key
+			</Dialog.Title>
+			<Dialog.Description>
+				Enter your OpenRouter API key to use the chat. Get your key from <a href="https://openrouter.ai/keys" target="_blank" class="text-primary underline">openrouter.ai/keys</a>
+			</Dialog.Description>
+		</Dialog.Header>
+		<div class="space-y-4">
+			<div>
+				<Label for="api-key">API Key</Label>
+				<Input
+					id="api-key"
+					type="password"
+					bind:value={userApiKey}
+					placeholder="sk-or-v1-..."
+					class="mt-2"
+				/>
+				<p class="text-xs text-muted-foreground mt-1">
+					Your API key is stored locally in your browser and never sent to our servers
+				</p>
+			</div>
+			
+			<div class="flex gap-2">
+				<Button 
+					variant="outline" 
+					onclick={testApiKey} 
+					disabled={!userApiKey.trim() || apiKeyTestResult === 'testing'}
+					class="flex-1"
+				>
+					{#if apiKeyTestResult === 'testing'}
+						Testing...
+					{:else if apiKeyTestResult === 'success'}
+						<Check class="h-4 w-4 mr-2" />
+						Valid
+					{:else if apiKeyTestResult === 'error'}
+						<AlertTriangle class="h-4 w-4 mr-2" />
+						Invalid
+					{:else}
+						Test Key
+					{/if}
+				</Button>
+				<Button 
+					onclick={() => showApiKeyDialog = false} 
+					disabled={!userApiKey.trim()}
+					class="flex-1"
+				>
+					Save
+				</Button>
+			</div>
+		</div>
+	</Dialog.Content>
+</Dialog.Root>

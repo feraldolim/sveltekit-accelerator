@@ -313,7 +313,8 @@ Return the information in this format:
 
 	// Parse the response into a structured format
 	const result: Record<string, string> = {};
-	const lines = response.choices[0]?.message?.content?.split('\n') || [];
+	const content = response.choices[0]?.message?.content;
+	const lines = typeof content === 'string' ? content.split('\n') : [];
 
 	for (const line of lines) {
 		const match = line.match(/^(.+?):\s*(.+)$/);

@@ -376,7 +376,7 @@ export function renderTemplate(
 	// Replace function calls first ({{FUNCTION_NAME}} or {{FUNCTION_NAME(args)}})
 	const functionRegex = /\{\{([A-Z_][A-Z0-9_]*)\(([^}]*)\)\}\}/g;
 	rendered = rendered.replace(functionRegex, (match, funcName, args) => {
-		const func = allFunctions[funcName];
+		const func = allFunctions[funcName as keyof typeof allFunctions];
 		if (func) {
 			try {
 				// Parse simple arguments (strings, numbers)
@@ -391,7 +391,7 @@ export function renderTemplate(
 					return arg;
 				}).filter((arg: any) => arg !== '');
 				
-				return func(...parsedArgs);
+				return (func as any)(...parsedArgs);
 			} catch (e) {
 				console.warn(`Error executing function ${funcName}:`, e);
 				return match;
@@ -403,10 +403,10 @@ export function renderTemplate(
 	// Replace simple function calls ({{FUNCTION_NAME}})
 	const simpleFunctionRegex = /\{\{([A-Z_][A-Z0-9_]*)\}\}/g;
 	rendered = rendered.replace(simpleFunctionRegex, (match, funcName) => {
-		const func = allFunctions[funcName];
+		const func = allFunctions[funcName as keyof typeof allFunctions];
 		if (func) {
 			try {
-				return func();
+				return (func as any)();
 			} catch (e) {
 				console.warn(`Error executing function ${funcName}:`, e);
 				return match;

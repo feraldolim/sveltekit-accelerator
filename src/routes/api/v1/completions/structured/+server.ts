@@ -70,7 +70,7 @@ export const POST: RequestHandler = createApiHandler(
 			});
 		}
 		
-		const result = await createStructuredCompletion(request);
+		const result = await createStructuredCompletion(request, auth.user.id);
 		return result;
 	},
 	{ 
