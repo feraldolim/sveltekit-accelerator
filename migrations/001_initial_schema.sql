@@ -23,8 +23,11 @@ CREATE TABLE IF NOT EXISTS chats (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
     title TEXT NOT NULL DEFAULT 'New Chat',
-    model TEXT NOT NULL DEFAULT 'openai/gpt-3.5-turbo',
-    system_prompt TEXT,
+    model TEXT NOT NULL DEFAULT 'moonshotai/kimi-k2:free',
+    default_system_prompt_id UUID,
+    default_structured_output_id UUID,
+    message_count INTEGER DEFAULT 0,
+    is_pinned BOOLEAN DEFAULT false,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -36,6 +39,10 @@ CREATE TABLE IF NOT EXISTS messages (
     role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
     content TEXT NOT NULL,
     model TEXT,
+    system_prompt_id UUID,
+    system_prompt_version INTEGER,
+    structured_output_id UUID,
+    structured_output_version INTEGER,
     token_count INTEGER,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -114,83 +121,163 @@ ALTER TABLE api_usage ENABLE ROW LEVEL SECURITY;
 ALTER TABLE storage_usage ENABLE ROW LEVEL SECURITY;
 
 -- Profiles policies
-CREATE POLICY "Users can view their own profile" ON profiles
-    FOR SELECT USING (auth.uid() = id);
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'profiles' AND policyname = 'Users can view their own profile') THEN
+        CREATE POLICY "Users can view their own profile" ON profiles
+            FOR SELECT USING (auth.uid() = id);
+    END IF;
+END $$;
 
-CREATE POLICY "Users can update their own profile" ON profiles
-    FOR UPDATE USING (auth.uid() = id);
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'profiles' AND policyname = 'Users can update their own profile') THEN
+        CREATE POLICY "Users can update their own profile" ON profiles
+            FOR UPDATE USING (auth.uid() = id);
+    END IF;
+END $$;
 
-CREATE POLICY "Users can insert their own profile" ON profiles
-    FOR INSERT WITH CHECK (auth.uid() = id);
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'profiles' AND policyname = 'Users can insert their own profile') THEN
+        CREATE POLICY "Users can insert their own profile" ON profiles
+            FOR INSERT WITH CHECK (auth.uid() = id);
+    END IF;
+END $$;
 
 -- Chats policies
-CREATE POLICY "Users can view their own chats" ON chats
-    FOR SELECT USING (auth.uid() = user_id);
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'chats' AND policyname = 'Users can view their own chats') THEN
+        CREATE POLICY "Users can view their own chats" ON chats
+            FOR SELECT USING (auth.uid() = user_id);
+    END IF;
+END $$;
 
-CREATE POLICY "Users can insert their own chats" ON chats
-    FOR INSERT WITH CHECK (auth.uid() = user_id);
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'chats' AND policyname = 'Users can insert their own chats') THEN
+        CREATE POLICY "Users can insert their own chats" ON chats
+            FOR INSERT WITH CHECK (auth.uid() = user_id);
+    END IF;
+END $$;
 
-CREATE POLICY "Users can update their own chats" ON chats
-    FOR UPDATE USING (auth.uid() = user_id);
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'chats' AND policyname = 'Users can update their own chats') THEN
+        CREATE POLICY "Users can update their own chats" ON chats
+            FOR UPDATE USING (auth.uid() = user_id);
+    END IF;
+END $$;
 
-CREATE POLICY "Users can delete their own chats" ON chats
-    FOR DELETE USING (auth.uid() = user_id);
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'chats' AND policyname = 'Users can delete their own chats') THEN
+        CREATE POLICY "Users can delete their own chats" ON chats
+            FOR DELETE USING (auth.uid() = user_id);
+    END IF;
+END $$;
 
 -- Messages policies
-CREATE POLICY "Users can view messages from their chats" ON messages
-    FOR SELECT USING (
-        EXISTS (
-            SELECT 1 FROM chats 
-            WHERE chats.id = messages.chat_id 
-            AND chats.user_id = auth.uid()
-        )
-    );
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'messages' AND policyname = 'Users can view messages from their chats') THEN
+        CREATE POLICY "Users can view messages from their chats" ON messages
+            FOR SELECT USING (
+                EXISTS (
+                    SELECT 1 FROM chats 
+                    WHERE chats.id = messages.chat_id 
+                    AND chats.user_id = auth.uid()
+                )
+            );
+    END IF;
+END $$;
 
-CREATE POLICY "Users can insert messages to their chats" ON messages
-    FOR INSERT WITH CHECK (
-        EXISTS (
-            SELECT 1 FROM chats 
-            WHERE chats.id = messages.chat_id 
-            AND chats.user_id = auth.uid()
-        )
-    );
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'messages' AND policyname = 'Users can insert messages to their chats') THEN
+        CREATE POLICY "Users can insert messages to their chats" ON messages
+            FOR INSERT WITH CHECK (
+                EXISTS (
+                    SELECT 1 FROM chats 
+                    WHERE chats.id = messages.chat_id 
+                    AND chats.user_id = auth.uid()
+                )
+            );
+    END IF;
+END $$;
 
 -- User activity policies
-CREATE POLICY "Users can view their own activity" ON user_activity
-    FOR SELECT USING (auth.uid() = user_id);
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'user_activity' AND policyname = 'Users can view their own activity') THEN
+        CREATE POLICY "Users can view their own activity" ON user_activity
+            FOR SELECT USING (auth.uid() = user_id);
+    END IF;
+END $$;
 
-CREATE POLICY "Users can insert their own activity" ON user_activity
-    FOR INSERT WITH CHECK (auth.uid() = user_id);
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'user_activity' AND policyname = 'Users can insert their own activity') THEN
+        CREATE POLICY "Users can insert their own activity" ON user_activity
+            FOR INSERT WITH CHECK (auth.uid() = user_id);
+    END IF;
+END $$;
 
 -- User sessions policies
-CREATE POLICY "Users can view their own sessions" ON user_sessions
-    FOR SELECT USING (auth.uid() = user_id);
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'user_sessions' AND policyname = 'Users can view their own sessions') THEN
+        CREATE POLICY "Users can view their own sessions" ON user_sessions
+            FOR SELECT USING (auth.uid() = user_id);
+    END IF;
+END $$;
 
-CREATE POLICY "Users can insert their own sessions" ON user_sessions
-    FOR INSERT WITH CHECK (auth.uid() = user_id);
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'user_sessions' AND policyname = 'Users can insert their own sessions') THEN
+        CREATE POLICY "Users can insert their own sessions" ON user_sessions
+            FOR INSERT WITH CHECK (auth.uid() = user_id);
+    END IF;
+END $$;
 
-CREATE POLICY "Users can update their own sessions" ON user_sessions
-    FOR UPDATE USING (auth.uid() = user_id);
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'user_sessions' AND policyname = 'Users can update their own sessions') THEN
+        CREATE POLICY "Users can update their own sessions" ON user_sessions
+            FOR UPDATE USING (auth.uid() = user_id);
+    END IF;
+END $$;
 
-CREATE POLICY "Users can delete their own sessions" ON user_sessions
-    FOR DELETE USING (auth.uid() = user_id);
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'user_sessions' AND policyname = 'Users can delete their own sessions') THEN
+        CREATE POLICY "Users can delete their own sessions" ON user_sessions
+            FOR DELETE USING (auth.uid() = user_id);
+    END IF;
+END $$;
 
 -- API usage policies
-CREATE POLICY "Users can view their own API usage" ON api_usage
-    FOR SELECT USING (auth.uid() = user_id);
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'api_usage' AND policyname = 'Users can view their own API usage') THEN
+        CREATE POLICY "Users can view their own API usage" ON api_usage
+            FOR SELECT USING (auth.uid() = user_id);
+    END IF;
+END $$;
 
-CREATE POLICY "Users can insert their own API usage" ON api_usage
-    FOR INSERT WITH CHECK (auth.uid() = user_id);
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'api_usage' AND policyname = 'Users can insert their own API usage') THEN
+        CREATE POLICY "Users can insert their own API usage" ON api_usage
+            FOR INSERT WITH CHECK (auth.uid() = user_id);
+    END IF;
+END $$;
 
 -- Storage usage policies
-CREATE POLICY "Users can view their own storage usage" ON storage_usage
-    FOR SELECT USING (auth.uid() = user_id);
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'storage_usage' AND policyname = 'Users can view their own storage usage') THEN
+        CREATE POLICY "Users can view their own storage usage" ON storage_usage
+            FOR SELECT USING (auth.uid() = user_id);
+    END IF;
+END $$;
 
-CREATE POLICY "Users can insert their own storage usage" ON storage_usage
-    FOR INSERT WITH CHECK (auth.uid() = user_id);
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'storage_usage' AND policyname = 'Users can insert their own storage usage') THEN
+        CREATE POLICY "Users can insert their own storage usage" ON storage_usage
+            FOR INSERT WITH CHECK (auth.uid() = user_id);
+    END IF;
+END $$;
 
-CREATE POLICY "Users can update their own storage usage" ON storage_usage
-    FOR UPDATE USING (auth.uid() = user_id);
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'storage_usage' AND policyname = 'Users can update their own storage usage') THEN
+        CREATE POLICY "Users can update their own storage usage" ON storage_usage
+            FOR UPDATE USING (auth.uid() = user_id);
+    END IF;
+END $$;
 
 -- Functions for automatic timestamps
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -202,15 +289,23 @@ END;
 $$ language 'plpgsql';
 
 -- Create triggers for updated_at
-CREATE TRIGGER update_profiles_updated_at
-    BEFORE UPDATE ON profiles
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at_column();
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_profiles_updated_at') THEN
+        CREATE TRIGGER update_profiles_updated_at
+            BEFORE UPDATE ON profiles
+            FOR EACH ROW
+            EXECUTE FUNCTION update_updated_at_column();
+    END IF;
+END $$;
 
-CREATE TRIGGER update_chats_updated_at
-    BEFORE UPDATE ON chats
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at_column();
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_chats_updated_at') THEN
+        CREATE TRIGGER update_chats_updated_at
+            BEFORE UPDATE ON chats
+            FOR EACH ROW
+            EXECUTE FUNCTION update_updated_at_column();
+    END IF;
+END $$;
 
 -- Function to automatically create profile on user signup
 CREATE OR REPLACE FUNCTION public.handle_new_user()
@@ -227,9 +322,13 @@ END;
 $$ language plpgsql security definer;
 
 -- Trigger to automatically create profile
-CREATE TRIGGER on_auth_user_created
-    AFTER INSERT ON auth.users
-    FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'on_auth_user_created') THEN
+        CREATE TRIGGER on_auth_user_created
+            AFTER INSERT ON auth.users
+            FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+    END IF;
+END $$;
 
 -- Create storage buckets (run these in Supabase dashboard or via API)
 -- INSERT INTO storage.buckets (id, name, public) VALUES ('avatars', 'avatars', true);

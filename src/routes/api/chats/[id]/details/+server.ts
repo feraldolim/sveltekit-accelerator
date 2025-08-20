@@ -1,7 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { requireAuth } from '$lib/server/auth.js';
-import { getChat, getChatMessages, deleteChat } from '$lib/server/chats.js';
+import { getChat, getChatMessages } from '$lib/server/chats.js';
 
 export const GET: RequestHandler = async (event) => {
 	try {
@@ -17,26 +17,15 @@ export const GET: RequestHandler = async (event) => {
 			error(404, 'Chat not found');
 		}
 
-		return json(chat);
+		return json({
+			chat,
+			messages
+		});
 	} catch (err) {
-		console.error('Get chat error:', err);
+		console.error('Get chat details error:', err);
 		if (err instanceof Error && err.message.includes('not found')) {
 			error(404, 'Chat not found');
 		}
-		error(500, 'Failed to fetch chat');
-	}
-};
-
-export const DELETE: RequestHandler = async (event) => {
-	try {
-		const { user } = await requireAuth(event);
-		const chatId = event.params.id;
-
-		await deleteChat(chatId, user.id);
-		
-		return json({ success: true });
-	} catch (err) {
-		console.error('Delete chat error:', err);
-		error(500, 'Failed to delete chat');
+		error(500, 'Failed to fetch chat details');
 	}
 };

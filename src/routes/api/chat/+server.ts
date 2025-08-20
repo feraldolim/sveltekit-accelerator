@@ -7,7 +7,7 @@ import {
 	truncateMessages,
 	type ChatMessage
 } from '$lib/server/llm.js';
-import { addMessage, createChat, updateChatTitle } from '$lib/server/chats.js';
+import { addMessage, createChat, updateChatTitle, updateChatMessageCount } from '$lib/server/chats.js';
 import { createApiTracker, trackUserActivity } from '$lib/server/analytics.js';
 import { getSystemPrompt } from '$lib/server/system-prompts.js';
 import { getStructuredOutput } from '$lib/server/structured-outputs.js';
@@ -60,11 +60,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 		// Process system prompt if ID is provided
 		let resolvedSystemPrompt = system_prompt;
+		let systemPromptData = null;
 		if (system_prompt_id) {
 			try {
-				const promptData = await getSystemPrompt(locals.user.id, system_prompt_id, true);
-				if (promptData) {
-					resolvedSystemPrompt = promptData.content;
+				systemPromptData = await getSystemPrompt(locals.user.id, system_prompt_id, true);
+				if (systemPromptData) {
+					resolvedSystemPrompt = systemPromptData.content;
 				}
 			} catch (err) {
 				console.warn('Failed to fetch system prompt:', err);
@@ -73,16 +74,17 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 		// Process structured output if ID is provided
 		let resolvedResponseFormat = response_format;
+		let structuredOutputData = null;
 		if (structured_output_id) {
 			try {
-				const schemaData = await getStructuredOutput(locals.user.id, structured_output_id, true);
-				if (schemaData) {
+				structuredOutputData = await getStructuredOutput(locals.user.id, structured_output_id, true);
+				if (structuredOutputData) {
 					resolvedResponseFormat = {
 						type: 'json_schema',
 						json_schema: {
-							name: schemaData.name,
+							name: structuredOutputData.name,
 							strict: true,
-							schema: schemaData.json_schema
+							schema: structuredOutputData.json_schema
 						}
 					};
 				}
@@ -137,7 +139,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 				locals.user.id,
 				'New Chat',
 				model || 'moonshotai/kimi-k2:free',
-				resolvedSystemPrompt
+				system_prompt_id,
+				structured_output_id
 			);
 			currentChatId = newChat.id;
 			isFirstMessage = true;
@@ -157,13 +160,21 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 				currentChatId,
 				'user',
 				textContent,
-				model || 'moonshotai/kimi-k2:free'
+				model || 'moonshotai/kimi-k2:free',
+				undefined, // tokenCount - not available for user messages
+				systemPromptData?.id,
+				systemPromptData?.version,
+				structuredOutputData?.id,
+				structuredOutputData?.version
 			);
 
 			// Update chat title if this is the first message
 			if (isFirstMessage) {
 				await updateChatTitle(currentChatId, locals.user.id, textContent);
 			}
+			
+			// Update message count
+			await updateChatMessageCount(currentChatId, locals.user.id);
 		}
 
 		// Truncate messages to prevent token limit issues
@@ -204,7 +215,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 								currentChatId,
 								'assistant',
 								assistantResponse.trim(),
-								model || 'moonshotai/kimi-k2:free'
+								model || 'moonshotai/kimi-k2:free',
+								undefined, // tokenCount - would need to calculate
+								systemPromptData?.id,
+								systemPromptData?.version,
+								structuredOutputData?.id,
+								structuredOutputData?.version
 							);
 						}
 
@@ -241,7 +257,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 				currentChatId,
 				'assistant',
 				assistantContent,
-				model || 'moonshotai/kimi-k2:free'
+				model || 'moonshotai/kimi-k2:free',
+				undefined, // tokenCount - would need to calculate
+				systemPromptData?.id,
+				systemPromptData?.version,
+				structuredOutputData?.id,
+				structuredOutputData?.version
 			);
 		}
 

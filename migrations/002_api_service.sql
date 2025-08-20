@@ -309,3 +309,114 @@ BEGIN
     CREATE INDEX IF NOT EXISTS idx_api_usage_api_key_id ON api_usage(api_key_id);
   END IF;
 END $$;
+
+-- Add foreign key constraints to link chats and messages to system prompts and structured outputs
+-- These are added here because the system_prompts and structured_outputs tables are created in this migration
+
+-- Add missing columns to messages table if needed
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'messages') THEN
+    -- Add system_prompt_id column if it doesn't exist
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'messages' AND column_name = 'system_prompt_id') THEN
+      ALTER TABLE messages ADD COLUMN system_prompt_id UUID;
+    END IF;
+    
+    -- Add system_prompt_version column if it doesn't exist
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'messages' AND column_name = 'system_prompt_version') THEN
+      ALTER TABLE messages ADD COLUMN system_prompt_version INTEGER;
+    END IF;
+    
+    -- Add structured_output_id column if it doesn't exist
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'messages' AND column_name = 'structured_output_id') THEN
+      ALTER TABLE messages ADD COLUMN structured_output_id UUID;
+    END IF;
+    
+    -- Add structured_output_version column if it doesn't exist
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'messages' AND column_name = 'structured_output_version') THEN
+      ALTER TABLE messages ADD COLUMN structured_output_version INTEGER;
+    END IF;
+  END IF;
+END $$;
+
+-- Add foreign key constraints to messages table (created in 001_initial_schema.sql)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'messages') THEN
+    -- Add system_prompt foreign key constraint
+    IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints 
+                   WHERE constraint_name = 'messages_system_prompt_id_fkey' 
+                   AND table_name = 'messages') THEN
+      IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'messages' AND column_name = 'system_prompt_id') THEN
+        ALTER TABLE messages 
+        ADD CONSTRAINT messages_system_prompt_id_fkey 
+        FOREIGN KEY (system_prompt_id) REFERENCES system_prompts(id) ON DELETE SET NULL;
+      END IF;
+    END IF;
+    
+    -- Add structured_output foreign key constraint
+    IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints 
+                   WHERE constraint_name = 'messages_structured_output_id_fkey' 
+                   AND table_name = 'messages') THEN
+      IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'messages' AND column_name = 'structured_output_id') THEN
+        ALTER TABLE messages 
+        ADD CONSTRAINT messages_structured_output_id_fkey 
+        FOREIGN KEY (structured_output_id) REFERENCES structured_outputs(id) ON DELETE SET NULL;
+      END IF;
+    END IF;
+  END IF;
+END $$;
+
+-- Add missing columns to chats table if needed
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'chats') THEN
+    -- Add default_system_prompt_id column if it doesn't exist
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'chats' AND column_name = 'default_system_prompt_id') THEN
+      ALTER TABLE chats ADD COLUMN default_system_prompt_id UUID;
+    END IF;
+    
+    -- Add default_structured_output_id column if it doesn't exist
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'chats' AND column_name = 'default_structured_output_id') THEN
+      ALTER TABLE chats ADD COLUMN default_structured_output_id UUID;
+    END IF;
+    
+    -- Add message_count column if it doesn't exist
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'chats' AND column_name = 'message_count') THEN
+      ALTER TABLE chats ADD COLUMN message_count INTEGER DEFAULT 0;
+    END IF;
+    
+    -- Add is_pinned column if it doesn't exist
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'chats' AND column_name = 'is_pinned') THEN
+      ALTER TABLE chats ADD COLUMN is_pinned BOOLEAN DEFAULT false;
+    END IF;
+  END IF;
+END $$;
+
+-- Add foreign key constraints to chats table (created in 001_initial_schema.sql)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'chats') THEN
+    -- Add default_system_prompt foreign key constraint
+    IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints 
+                   WHERE constraint_name = 'chats_default_system_prompt_id_fkey' 
+                   AND table_name = 'chats') THEN
+      IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'chats' AND column_name = 'default_system_prompt_id') THEN
+        ALTER TABLE chats
+        ADD CONSTRAINT chats_default_system_prompt_id_fkey
+        FOREIGN KEY (default_system_prompt_id) REFERENCES system_prompts(id) ON DELETE SET NULL;
+      END IF;
+    END IF;
+    
+    -- Add default_structured_output foreign key constraint
+    IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints 
+                   WHERE constraint_name = 'chats_default_structured_output_id_fkey' 
+                   AND table_name = 'chats') THEN
+      IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'chats' AND column_name = 'default_structured_output_id') THEN
+        ALTER TABLE chats
+        ADD CONSTRAINT chats_default_structured_output_id_fkey
+        FOREIGN KEY (default_structured_output_id) REFERENCES structured_outputs(id) ON DELETE SET NULL;
+      END IF;
+    END IF;
+  END IF;
+END $$;

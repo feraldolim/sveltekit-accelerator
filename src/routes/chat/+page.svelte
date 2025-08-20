@@ -37,7 +37,7 @@
 		Pin,
 		PinOff,
 		Download,
-		Code2,
+		Code,
 		Braces,
 		Globe,
 		Lock,
@@ -102,7 +102,8 @@
 	let messages: Message[] = $state([]);
 	let currentMessage = $state('');
 	let isLoading = $state(false);
-	let selectedModel = $state('moonshotai/kimi-k2:free');
+	let selectedModel: {id: string, name?: string} | null = $state(null);
+	let selectedModelId = $state('moonshotai/kimi-k2:free');
 	let systemPrompt = $state('');
 	let currentChatId: string | null = $state(null);
 
@@ -135,14 +136,15 @@
 	const availableModels = $derived((data.models || []) as Array<{id: string, name?: string}>);
 	const systemPrompts = $derived((data.systemPrompts || []) as SystemPrompt[]);
 	const structuredOutputs = $derived((data.structuredOutputs || []) as StructuredOutput[]);
-	const conversations = $derived((data.chats || []) as Conversation[]);
+	
+	// Conversations state - reactive to both server data and new chats
+	let conversations = $state((data.chats || []) as Conversation[]);
 
 	// Computed values
-	const triggerContent = $derived(
-		availableModels.find((m) => m.id === selectedModel)?.name || 
-		availableModels.find((m) => m.id === selectedModel)?.id || 
-		"Select model"
-	);
+	const triggerContent = $derived(() => {
+		const model = availableModels.find(m => m.id === selectedModelId);
+		return model?.name || model?.id || "Select model";
+	});
 	const hasMessages = $derived(messages.length > 0);
 	const hasAttachments = $derived(attachments.length > 0);
 
@@ -164,6 +166,11 @@
 	let fileInput: HTMLInputElement;
 
 	onMount(() => {
+		// Set default model when data is available
+		if (!selectedModel && availableModels.length > 0) {
+			selectedModel = availableModels.find(m => m.id === selectedModelId) || availableModels[0];
+			selectedModelId = selectedModel.id;
+		}
 		// Focus input after mount
 		if (messageInput && messageInput.focus) {
 			messageInput.focus();
@@ -205,6 +212,13 @@
 					behavior: 'smooth'
 				});
 			});
+		}
+	});
+
+	// Sync selectedModelId with selectedModel
+	$effect(() => {
+		if (selectedModelId && availableModels.length > 0) {
+			selectedModel = availableModels.find(m => m.id === selectedModelId) || availableModels[0];
 		}
 	});
 
@@ -338,6 +352,20 @@
 		toast.success('Started new chat');
 	}
 
+	async function updateConversationsList(newChatId: string) {
+		try {
+			// Fetch the new chat details from the server
+			const response = await fetch(`/api/chats/${newChatId}`);
+			if (response.ok) {
+				const newChat = await response.json();
+				// Add the new chat to the beginning of the conversations list
+				conversations = [newChat, ...conversations];
+			}
+		} catch (error) {
+			console.warn('Failed to update conversations list:', error);
+		}
+	}
+
 	async function sendMessage() {
 		if (!currentMessage.trim() || isLoading) return;
 
@@ -357,7 +385,6 @@
 		};
 
 		messages = [...messages, userMessage];
-		const messageToSend = currentMessage.trim();
 		currentMessage = '';
 		const messagesToSend = [...messages];
 		const currentAttachments = [...attachments];
@@ -365,24 +392,11 @@
 		isLoading = true;
 
 		try {
-			// Prepare messages for API
-			const apiMessages = [];
-
-			// Add system prompt if selected
-			if (selectedSystemPrompt) {
-				apiMessages.push({
-					role: 'system',
-					content: selectedSystemPrompt.content
-				});
-			}
-
-			// Add conversation history
-			apiMessages.push(
-				...messagesToSend.map((msg) => ({
-					role: msg.role,
-					content: msg.content
-				}))
-			);
+			// Prepare messages for API - system prompt is now handled via ID
+			const apiMessages = messagesToSend.map((msg) => ({
+				role: msg.role,
+				content: msg.content
+			}));
 
 			// Prepare attachments for API
 			const apiAttachments = currentAttachments.map(att => ({
@@ -418,7 +432,7 @@
 
 		const requestBody: any = {
 			messages: apiMessages,
-			model: selectedModel,
+			model: selectedModel?.id || 'moonshotai/kimi-k2:free',
 			temperature,
 			max_tokens: maxTokens,
 			stream: true,
@@ -455,7 +469,7 @@
 			role: 'assistant',
 			content: '',
 			timestamp: new Date(),
-			model: selectedModel
+			model: selectedModel?.id || 'moonshotai/kimi-k2:free'
 		};
 
 		messages = [...messages, assistantMessage];
@@ -480,6 +494,8 @@
 								// Handle chat_id from response
 								if (parsed.chat_id && !currentChatId) {
 									currentChatId = parsed.chat_id;
+									// Update conversations list with the new chat
+									updateConversationsList(parsed.chat_id);
 								}
 
 								const content = parsed.choices[0]?.delta?.content || '';
@@ -515,7 +531,7 @@
 
 		const requestBody: any = {
 			messages: apiMessages,
-			model: selectedModel,
+			model: selectedModel?.id || 'moonshotai/kimi-k2:free',
 			temperature,
 			max_tokens: maxTokens,
 			stream: false,
@@ -549,6 +565,8 @@
 		// Update chat_id if this was a new chat
 		if (result.chat_id && !currentChatId) {
 			currentChatId = result.chat_id;
+			// Update conversations list with the new chat
+			updateConversationsList(result.chat_id);
 		}
 
 		const assistantMessage: Message = {
@@ -556,7 +574,7 @@
 			role: 'assistant',
 			content: result.choices[0]?.message?.content || 'No response',
 			timestamp: new Date(),
-			model: selectedModel
+			model: selectedModel?.id || 'moonshotai/kimi-k2:free'
 		};
 
 		messages = [...messages, assistantMessage];
@@ -586,8 +604,11 @@
 		}
 	}
 
-	function formatTimestamp(date: Date) {
-		return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+	function formatTimestamp(date: Date | string) {
+		if (!date) return '';
+		const dateObj = typeof date === 'string' ? new Date(date) : date;
+		if (isNaN(dateObj.getTime())) return '';
+		return dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 	}
 
 	function renderMarkdown(content: string): string {
@@ -621,10 +642,44 @@
 		toast.success(`Selected schema: ${output.name}`);
 	}
 
-	function loadConversation(conversation: Conversation) {
-		// TODO: Load conversation messages
-		currentChatId = conversation.id;
-		toast.success(`Loaded conversation: ${conversation.title}`);
+	async function loadConversation(conversation: Conversation) {
+		try {
+			const response = await fetch(`/api/chats/${conversation.id}/details`);
+			if (!response.ok) {
+				throw new Error('Failed to load conversation');
+			}
+			
+			const data = await response.json();
+			
+			// Update chat state with loaded conversation
+			currentChatId = conversation.id;
+			messages = data.messages || [];
+			
+			// Update chat metadata if available
+			if (data.chat.system_prompt_id) {
+				const systemPrompt = systemPrompts.find(p => p.id === data.chat.system_prompt_id);
+				if (systemPrompt) {
+					selectedSystemPrompt = systemPrompt;
+				}
+			}
+			
+			if (data.chat.structured_output_id) {
+				const structuredOutput = structuredOutputs.find(s => s.id === data.chat.structured_output_id);
+				if (structuredOutput) {
+					selectedStructuredOutput = structuredOutput;
+					useStructuredOutput = true;
+				}
+			}
+			
+			if (data.chat.model) {
+				selectedModel = availableModels.find(m => m.id === data.chat.model) || availableModels[0];
+			}
+			
+			toast.success(`Loaded conversation: ${conversation.title}`);
+		} catch (error) {
+			console.error('Failed to load conversation:', error);
+			toast.error('Failed to load conversation');
+		}
 	}
 </script>
 
@@ -690,7 +745,7 @@
 					class="flex-1 p-2 text-sm border-b-2 {sidebarTab === 'prompts' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground'}"
 					onclick={() => sidebarTab = 'prompts'}
 				>
-					<Code2 class="h-4 w-4 mx-auto mb-1" />
+					<Code class="h-4 w-4 mx-auto mb-1" />
 					Prompts
 				</button>
 				<button 
@@ -846,7 +901,7 @@
 					<div>
 						<h1 class="text-lg font-bold">AI Chat</h1>
 						<p class="text-sm text-muted-foreground">
-							Powered by {selectedModel}
+							Powered by {selectedModel?.name || selectedModel?.id}
 						</p>
 					</div>
 				</div>
@@ -856,7 +911,7 @@
 			<div class="flex items-center space-x-2">
 				{#if selectedSystemPrompt}
 					<Badge variant="secondary" class="text-xs">
-						<Code2 class="h-3 w-3 mr-1" />
+						<Code class="h-3 w-3 mr-1" />
 						{selectedSystemPrompt.name}
 					</Badge>
 				{/if}
@@ -946,7 +1001,7 @@
 									<span class="text-sm font-medium">
 										{message.role === 'user' ? 'You' : 'AI Assistant'}
 									</span>
-									{#if message.model}
+									{#if message.model && message.role === 'assistant'}
 										<Badge variant="secondary" class="text-xs">
 											{message.model}
 										</Badge>
@@ -1107,9 +1162,9 @@
 		<div class="space-y-4">
 			<div>
 				<Label>Model</Label>
-				<Select.Root type="single" name="model" bind:value={selectedModel}>
+				<Select.Root type="single" name="model" bind:value={selectedModelId}>
 					<Select.Trigger class="w-full">
-						{triggerContent}
+						{triggerContent()}
 					</Select.Trigger>
 					<Select.Content>
 						<Select.Group>

@@ -15,7 +15,8 @@ export async function createChat(
 	userId: string,
 	title: string = 'New Chat',
 	model: string = 'moonshotai/kimi-k2:free',
-	systemPrompt?: string
+	defaultSystemPromptId?: string,
+	defaultStructuredOutputId?: string
 ): Promise<Chat> {
 	const { data, error } = await supabaseAdmin
 		.from('chats')
@@ -23,7 +24,8 @@ export async function createChat(
 			user_id: userId,
 			title,
 			model,
-			system_prompt: systemPrompt
+			default_system_prompt_id: defaultSystemPromptId,
+			default_structured_output_id: defaultStructuredOutputId
 		})
 		.select()
 		.single();
@@ -119,7 +121,11 @@ export async function addMessage(
 	role: 'user' | 'assistant' | 'system',
 	content: string,
 	model?: string,
-	tokenCount?: number
+	tokenCount?: number,
+	systemPromptId?: string,
+	systemPromptVersion?: number,
+	structuredOutputId?: string,
+	structuredOutputVersion?: number
 ): Promise<Message> {
 	const { data, error } = await supabaseAdmin
 		.from('messages')
@@ -128,7 +134,11 @@ export async function addMessage(
 			role,
 			content,
 			model,
-			token_count: tokenCount
+			token_count: tokenCount,
+			system_prompt_id: systemPromptId,
+			system_prompt_version: systemPromptVersion,
+			structured_output_id: structuredOutputId,
+			structured_output_version: structuredOutputVersion
 		})
 		.select()
 		.single();
@@ -183,4 +193,22 @@ export function generateChatTitle(firstMessage: string): string {
 export async function updateChatTitle(chatId: string, userId: string, firstMessage: string): Promise<void> {
 	const title = generateChatTitle(firstMessage);
 	await updateChat(chatId, userId, { title });
+}
+
+/**
+ * Update message count for a chat
+ */
+export async function updateChatMessageCount(chatId: string, userId: string): Promise<void> {
+	// Get current message count
+	const { count, error } = await supabaseAdmin
+		.from('messages')
+		.select('*', { count: 'exact', head: true })
+		.eq('chat_id', chatId);
+
+	if (error) {
+		throw new Error(`Failed to count messages: ${error.message}`);
+	}
+
+	// Update the chat with the new count
+	await updateChat(chatId, userId, { message_count: count || 0 });
 }

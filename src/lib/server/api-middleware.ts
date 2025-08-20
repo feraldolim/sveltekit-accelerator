@@ -16,30 +16,21 @@ export async function authenticateApiRequest(event: RequestEvent): Promise<ApiAu
 	const authHeader = event.request.headers.get('authorization');
 	
 	if (!authHeader) {
-		error(401, {
-			message: 'Missing Authorization header',
-			code: 'MISSING_AUTH'
-		});
+		error(401, 'Missing Authorization header');
 	}
 
 	// Support both "Bearer" and "API-Key" prefixes
 	const token = authHeader.replace(/^(Bearer|API-Key)\s+/i, '');
 	
 	if (!token) {
-		error(401, {
-			message: 'Invalid Authorization header format',
-			code: 'INVALID_AUTH_FORMAT'
-		});
+		error(401, 'Invalid Authorization header format');
 	}
 
 	// Authenticate the API key
 	const authResult = await authenticateApiKey(token);
 	
 	if (!authResult.success) {
-		error(401, {
-			message: authResult.error || 'Invalid API key',
-			code: 'INVALID_API_KEY'
-		});
+		error(401, authResult.error || 'Invalid API key');
 	}
 
 	return {
@@ -55,10 +46,7 @@ export async function authenticateApiRequest(event: RequestEvent): Promise<ApiAu
  */
 export function requireScope(scopes: string[], requiredScope: string): void {
 	if (!scopes.includes(requiredScope) && !scopes.includes('*')) {
-		error(403, {
-			message: `Insufficient permissions. Required scope: ${requiredScope}`,
-			code: 'INSUFFICIENT_SCOPE'
-		});
+		error(403, `Insufficient permissions. Required scope: ${requiredScope}`);
 	}
 }
 
@@ -69,15 +57,7 @@ export async function checkApiRateLimit(apiKeyId: string, rateLimit: number): Pr
 	const rateLimitCheck = await checkRateLimit(apiKeyId);
 	
 	if (!rateLimitCheck.allowed) {
-		error(429, {
-			message: 'Rate limit exceeded',
-			code: 'RATE_LIMIT_EXCEEDED',
-			details: {
-				current_usage: rateLimitCheck.current_usage,
-				limit: rateLimitCheck.limit,
-				reset_time: rateLimitCheck.reset_time
-			}
-		});
+		error(429, 'Rate limit exceeded');
 	}
 }
 
@@ -159,19 +139,12 @@ export function createApiHandler<T = any>(
  */
 export function validateRequestBody(body: any, requiredFields: string[]): void {
 	if (!body || typeof body !== 'object') {
-		error(400, {
-			message: 'Request body must be a valid JSON object',
-			code: 'INVALID_BODY'
-		});
+		error(400, 'Request body must be a valid JSON object');
 	}
 
 	const missingFields = requiredFields.filter(field => !(field in body));
 	if (missingFields.length > 0) {
-		error(400, {
-			message: `Missing required fields: ${missingFields.join(', ')}`,
-			code: 'MISSING_FIELDS',
-			details: { missing_fields: missingFields }
-		});
+		error(400, `Missing required fields: ${missingFields.join(', ')}`);
 	}
 }
 
@@ -184,14 +157,7 @@ export function validateQueryParams(url: URL, allowedParams: string[]): void {
 	);
 
 	if (invalidParams.length > 0) {
-		error(400, {
-			message: `Invalid query parameters: ${invalidParams.join(', ')}`,
-			code: 'INVALID_PARAMS',
-			details: { 
-				invalid_params: invalidParams,
-				allowed_params: allowedParams
-			}
-		});
+		error(400, `Invalid query parameters: ${invalidParams.join(', ')}`);
 	}
 }
 
@@ -209,10 +175,7 @@ export function parsePagination(url: URL): { limit: number; offset: number } {
 	if (limitParam) {
 		const parsedLimit = parseInt(limitParam, 10);
 		if (isNaN(parsedLimit) || parsedLimit < 1 || parsedLimit > 100) {
-			error(400, {
-				message: 'Limit must be a number between 1 and 100',
-				code: 'INVALID_LIMIT'
-			});
+			error(400, 'Limit must be a number between 1 and 100');
 		}
 		limit = parsedLimit;
 	}
@@ -220,20 +183,14 @@ export function parsePagination(url: URL): { limit: number; offset: number } {
 	if (offsetParam) {
 		const parsedOffset = parseInt(offsetParam, 10);
 		if (isNaN(parsedOffset) || parsedOffset < 0) {
-			error(400, {
-				message: 'Offset must be a non-negative number',
-				code: 'INVALID_OFFSET'
-			});
+			error(400, 'Offset must be a non-negative number');
 		}
 		offset = parsedOffset;
 	} else if (pageParam) {
 		// Support page-based pagination (page=1 means offset=0)
 		const parsedPage = parseInt(pageParam, 10);
 		if (isNaN(parsedPage) || parsedPage < 1) {
-			error(400, {
-				message: 'Page must be a positive number starting from 1',
-				code: 'INVALID_PAGE'
-			});
+			error(400, 'Page must be a positive number starting from 1');
 		}
 		offset = (parsedPage - 1) * limit;
 	}
@@ -311,24 +268,14 @@ export function handleApiError(err: any) {
 
 	// Handle validation errors
 	if (err.name === 'ValidationError') {
-		error(400, {
-			message: err.message,
-			code: 'VALIDATION_ERROR',
-			details: err.details
-		});
+		error(400, err.message);
 	}
 
 	// Handle database errors
 	if (err.code === 'PGRST116') {
-		error(404, {
-			message: 'Resource not found',
-			code: 'NOT_FOUND'
-		});
+		error(404, 'Resource not found');
 	}
 
 	// Generic server error
-	error(500, {
-		message: 'Internal server error',
-		code: 'INTERNAL_ERROR'
-	});
+	error(500, 'Internal server error');
 }
