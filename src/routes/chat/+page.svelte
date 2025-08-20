@@ -507,16 +507,72 @@
 				role: 'user',
 				content: currentMessage.trim(),
 				id: 'temp-input',
-				timestamp: new Date()
+				timestamp: new Date(),
+				attachments: attachments.length > 0 ? attachments : undefined
 			});
 		}
 		
-		// Prepare the request body
-		const requestBody = {
-			messages: allMessages.map(msg => ({
+		// Convert messages to API format with multimodal support
+		const apiMessages = allMessages.map((msg) => {
+			const baseMessage = {
 				role: msg.role,
 				content: msg.content
-			})),
+			};
+
+			// Handle multimodal content for user messages with attachments
+			if (msg.role === 'user' && msg.attachments && msg.attachments.length > 0) {
+				const contentArray: any[] = [
+					{ type: 'text', text: msg.content }
+				];
+
+				// Add each attachment in the correct format
+				msg.attachments.forEach(attachment => {
+					if (attachment.type === 'image' && attachment.data) {
+						contentArray.push({
+							type: 'image_url',
+							image_url: {
+								url: attachment.data, // Base64 data URI
+								detail: 'high'
+							}
+						});
+					} else if (attachment.type === 'pdf' && attachment.data) {
+						// For PDFs, use the file type format
+						contentArray.push({
+							type: 'file',
+							file: {
+								filename: attachment.name,
+								file_data: attachment.data // Base64 data URI
+							}
+						});
+					} else if (attachment.type === 'audio' && attachment.data) {
+						// For audio files, use the input_audio type format
+						const audioFormat = attachment.name.toLowerCase().includes('.wav') ? 'wav' : 'mp3';
+						const base64Data = attachment.data.includes(',') 
+							? attachment.data.split(',')[1] 
+							: attachment.data;
+						
+						contentArray.push({
+							type: 'input_audio',
+							input_audio: {
+								data: base64Data, // Raw base64 data (no data URI prefix)
+								format: audioFormat
+							}
+						});
+					}
+				});
+
+				return {
+					...baseMessage,
+					content: contentArray
+				};
+			}
+
+			return baseMessage;
+		});
+		
+		// Prepare the request body
+		const requestBody = {
+			messages: apiMessages,
 			model: selectedModelId || 'moonshotai/kimi-k2:free',
 			temperature,
 			max_completion_tokens: maxCompletionTokens,
