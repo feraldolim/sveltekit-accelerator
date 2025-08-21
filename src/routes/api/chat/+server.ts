@@ -108,10 +108,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			
 			if (lastMessage && lastMessage.role === 'user' && typeof lastMessage.content === 'string') {
 				const contentArray: Array<{
-					type: 'text' | 'image_url' | 'file';
+					type: 'text' | 'image_url' | 'file' | 'input_audio';
 					text?: string;
 					image_url?: { url: string; detail?: 'low' | 'high' | 'auto' };
 					file?: { filename: string; file_data: string };
+					input_audio?: { data: string; format: string };
 				}> = [
 					{ type: 'text', text: lastMessage.content }
 				];
@@ -122,7 +123,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 						contentArray.push({
 							type: 'image_url',
 							image_url: {
-								url: attachment.data, // Base64 data URI
+								url: attachment.data, // Can be URL or Base64 data URI
 								detail: 'high'
 							}
 						});
@@ -132,26 +133,30 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 							type: 'file',
 							file: {
 								filename: attachment.name,
-								file_data: attachment.data // Base64 data URI for PDF
+								file_data: attachment.data // Can be URL or Base64 data URI for PDF
 							}
 						});
 					} else if (attachment.type === 'audio' && attachment.data) {
-						// For audio files, use the input_audio type format per OpenRouter docs
-						// Extract format from filename or assume common formats
-						const audioFormat = attachment.name.toLowerCase().includes('.wav') ? 'wav' : 'mp3';
-						
-						// Remove data URI prefix if present (data:audio/wav;base64,)
-						const base64Data = attachment.data.includes(',') 
-							? attachment.data.split(',')[1] 
-							: attachment.data;
-						
-						contentArray.push({
-							type: 'input_audio',
-							input_audio: {
-								data: base64Data, // Raw base64 data (no data URI prefix)
-								format: audioFormat
-							}
-						});
+						// Audio URLs are not supported by OpenRouter, only base64
+						// Check if it's a base64 data URI (not a URL)
+						if (attachment.data.startsWith('data:') || !attachment.data.startsWith('http')) {
+							// For audio files, use the input_audio type format per OpenRouter docs
+							// Extract format from filename or assume common formats
+							const audioFormat = attachment.name.toLowerCase().includes('.wav') ? 'wav' : 'mp3';
+							
+							// Remove data URI prefix if present (data:audio/wav;base64,)
+							const base64Data = attachment.data.includes(',') 
+								? attachment.data.split(',')[1] 
+								: attachment.data;
+							
+							contentArray.push({
+								type: 'input_audio',
+								input_audio: {
+									data: base64Data, // Raw base64 data (no data URI prefix)
+									format: audioFormat
+								}
+							});
+						}
 					}
 				}
 
@@ -186,7 +191,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			const textContent = typeof lastUserMessage.content === 'string' 
 				? lastUserMessage.content 
 				: Array.isArray(lastUserMessage.content)
-					? lastUserMessage.content.find(c => c.type === 'text')?.text || ''
+					? lastUserMessage.content.find((c: any) => c.type === 'text')?.text || ''
 					: '';
 
 			const userMessage = await addMessage(
@@ -206,8 +211,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 				console.log('Processing attachments:', attachments);
 				
 				const fileAttachments: FileAttachment[] = attachments
-					.filter(att => att.type && att.name && att.data && ['pdf', 'image', 'audio'].includes(att.type))
-					.map(att => {
+					.filter((att: any) => att.type && att.name && att.data && ['pdf', 'image', 'audio'].includes(att.type))
+					.map((att: any) => {
 						// Calculate file size from base64 data if not provided
 						let fileSize = att.size || 0;
 						if (!fileSize && att.data) {
@@ -276,61 +281,93 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 		// Handle streaming response
 		if (stream) {
-			const responseStream = await createCompletionStream(completionRequest);
-			let assistantResponse = '';
+			try {
+				const responseStream = await createCompletionStream(completionRequest);
+				let assistantResponse = '';
 
-			// Create a readable stream for the response
-			const readableStream = new ReadableStream({
-				async start(controller) {
-					try {
-						for await (const chunk of parseStreamResponse(responseStream)) {
-							// Accumulate the response for saving to database
-							const content = chunk.choices[0]?.delta?.content || '';
-							assistantResponse += content;
+				// Create a readable stream for the response
+				const readableStream = new ReadableStream({
+					async start(controller) {
+						try {
+							for await (const chunk of parseStreamResponse(responseStream)) {
+								// Check if chunk exists and has valid structure
+								if (!chunk || !chunk.choices || !chunk.choices[0]) {
+									console.warn('Invalid chunk received:', chunk);
+									continue;
+								}
+								
+								// Accumulate the response for saving to database
+								const content = chunk.choices[0]?.delta?.content || '';
+								assistantResponse += content;
 
-							const data = `data: ${JSON.stringify(chunk)}\n\n`;
-							controller.enqueue(new TextEncoder().encode(data));
-						}
+								const data = `data: ${JSON.stringify(chunk)}\n\n`;
+								controller.enqueue(new TextEncoder().encode(data));
+							}
 
-						// Save assistant response to database
-						if (assistantResponse.trim()) {
-							// Estimate token count for streaming responses
-							const estimatedTokens = estimateTokenCount(assistantResponse.trim());
+							// Save assistant response to database
+							if (assistantResponse.trim()) {
+								// Estimate token count for streaming responses
+								const estimatedTokens = estimateTokenCount(assistantResponse.trim());
+								
+								await addMessage(
+									currentChatId,
+									'assistant',
+									assistantResponse.trim(),
+									model || 'moonshotai/kimi-k2:free',
+									estimatedTokens, // Use estimated token count for streaming
+									systemPromptData?.id,
+									systemPromptData?.version,
+									structuredOutputData?.id,
+									structuredOutputData?.version
+								);
+							}
+
+							// Send final message with chat_id
+							controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({
+								chat_id: currentChatId,
+								done: true
+							})}\n\n`));
+							controller.enqueue(new TextEncoder().encode('data: [DONE]\n\n'));
+							controller.close();
+						} catch (err) {
+							console.error('Stream error:', err);
 							
-							await addMessage(
-								currentChatId,
-								'assistant',
-								assistantResponse.trim(),
-								model || 'moonshotai/kimi-k2:free',
-								estimatedTokens, // Use estimated token count for streaming
-								systemPromptData?.id,
-								systemPromptData?.version,
-								structuredOutputData?.id,
-								structuredOutputData?.version
-							);
+							// Send error message to client
+							const errorMessage = {
+								error: {
+									message: err instanceof Error ? err.message : 'An error occurred while processing your request',
+									code: 'stream_error'
+								},
+								chat_id: currentChatId,
+								done: true
+							};
+							
+							controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(errorMessage)}\n\n`));
+							controller.enqueue(new TextEncoder().encode('data: [DONE]\n\n'));
+							controller.close();
 						}
-
-						// Send final message with chat_id
-						controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({
-							chat_id: currentChatId,
-							done: true
-						})}\n\n`));
-						controller.enqueue(new TextEncoder().encode('data: [DONE]\n\n'));
-						controller.close();
-					} catch (err) {
-						console.error('Stream error:', err);
-						controller.error(err);
 					}
-				}
-			});
+				});
 
-			return new Response(readableStream, {
-				headers: {
-					'Content-Type': 'text/event-stream',
-					'Cache-Control': 'no-cache',
-					Connection: 'keep-alive'
-				}
-			});
+				return new Response(readableStream, {
+					headers: {
+						'Content-Type': 'text/event-stream',
+						'Cache-Control': 'no-cache',
+						Connection: 'keep-alive'
+					}
+				});
+			} catch (streamError) {
+				console.error('Failed to create stream:', streamError);
+				
+				// If streaming fails entirely, return a proper error response
+				return json({
+					error: {
+						message: streamError instanceof Error ? streamError.message : 'Failed to process request',
+						code: 'stream_initialization_error'
+					},
+					chat_id: currentChatId
+				}, { status: 500 });
+			}
 		}
 
 		// Handle regular completion

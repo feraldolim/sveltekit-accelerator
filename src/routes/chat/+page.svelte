@@ -51,7 +51,9 @@
 		Pencil,
 		MessageCircle,
 		List,
-		Trash2
+		Trash2,
+		Link,
+		ExternalLinkIcon
 	} from 'lucide-svelte';
 	import { toast } from 'svelte-sonner';
 	import type { PageData } from './$types';
@@ -81,8 +83,9 @@
 		type: 'image' | 'pdf' | 'audio' | 'text';
 		name: string;
 		size: number;
-		data: string; // Base64 data URI
+		data: string; // Base64 data URI or direct URL
 		url?: string;
+		isUrl?: boolean; // Flag to indicate if data is a URL
 	}
 
 	interface SystemPrompt {
@@ -160,6 +163,9 @@
 	let showDeveloperTools = $state(false);
 	let copiedCurl = $state(false);
 	let editingConversationId = $state<string | null>(null);
+	let showUrlDialog = $state(false);
+	let urlInput = $state('');
+	let urlFileType = $state<'image' | 'pdf'>('image');
 	let editingModel = $state('');
 
 	// Data from server
@@ -528,36 +534,61 @@
 				// Add each attachment in the correct format
 				msg.attachments.forEach(attachment => {
 					if (attachment.type === 'image' && attachment.data) {
-						contentArray.push({
-							type: 'image_url',
-							image_url: {
-								url: attachment.data, // Base64 data URI
-								detail: 'high'
-							}
-						});
+						if (attachment.isUrl) {
+							// For URL images, pass the URL directly
+							contentArray.push({
+								type: 'image_url',
+								image_url: {
+									url: attachment.data, // Direct URL
+									detail: 'high'
+								}
+							});
+						} else {
+							// For base64 images
+							contentArray.push({
+								type: 'image_url',
+								image_url: {
+									url: attachment.data, // Base64 data URI
+									detail: 'high'
+								}
+							});
+						}
 					} else if (attachment.type === 'pdf' && attachment.data) {
-						// For PDFs, use the file type format
-						contentArray.push({
-							type: 'file',
-							file: {
-								filename: attachment.name,
-								file_data: attachment.data // Base64 data URI
-							}
-						});
+						if (attachment.isUrl) {
+							// For URL PDFs, pass the URL as file_data
+							contentArray.push({
+								type: 'file',
+								file: {
+									filename: attachment.name,
+									file_data: attachment.data // Direct URL
+								}
+							});
+						} else {
+							// For base64 PDFs
+							contentArray.push({
+								type: 'file',
+								file: {
+									filename: attachment.name,
+									file_data: attachment.data // Base64 data URI
+								}
+							});
+						}
 					} else if (attachment.type === 'audio' && attachment.data) {
-						// For audio files, use the input_audio type format
-						const audioFormat = attachment.name.toLowerCase().includes('.wav') ? 'wav' : 'mp3';
-						const base64Data = attachment.data.includes(',') 
-							? attachment.data.split(',')[1] 
-							: attachment.data;
-						
-						contentArray.push({
-							type: 'input_audio',
-							input_audio: {
-								data: base64Data, // Raw base64 data (no data URI prefix)
-								format: audioFormat
-							}
-						});
+						// Audio URLs are not supported by OpenRouter, only base64
+						if (!attachment.isUrl) {
+							const audioFormat = attachment.name.toLowerCase().includes('.wav') ? 'wav' : 'mp3';
+							const base64Data = attachment.data.includes(',') 
+								? attachment.data.split(',')[1] 
+								: attachment.data;
+							
+							contentArray.push({
+								type: 'input_audio',
+								input_audio: {
+									data: base64Data, // Raw base64 data (no data URI prefix)
+									format: audioFormat
+								}
+							});
+						}
 					}
 				});
 
@@ -698,6 +729,86 @@
 
 	function removeAttachment(id: string) {
 		attachments = attachments.filter(a => a.id !== id);
+	}
+
+	// URL validation and processing
+	function validateUrl(url: string): boolean {
+		try {
+			new URL(url);
+			return true;
+		} catch {
+			return false;
+		}
+	}
+
+	function detectFileTypeFromUrl(url: string): 'image' | 'pdf' | null {
+		const lowercaseUrl = url.toLowerCase();
+		
+		// Check for common image extensions
+		if (/\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?|$)/i.test(lowercaseUrl)) {
+			return 'image';
+		}
+		
+		// Check for PDF extension
+		if (/\.pdf(\?|$)/i.test(lowercaseUrl)) {
+			return 'pdf';
+		}
+		
+		return null;
+	}
+
+	function getFileNameFromUrl(url: string): string {
+		try {
+			const urlObj = new URL(url);
+			const pathname = urlObj.pathname;
+			const filename = pathname.split('/').pop() || 'file';
+			return filename.includes('.') ? filename : `${filename}.${urlFileType}`;
+		} catch {
+			return `file.${urlFileType}`;
+		}
+	}
+
+	async function handleUrlSubmit() {
+		if (!urlInput.trim()) {
+			toast.error('Please enter a URL');
+			return;
+		}
+
+		if (!validateUrl(urlInput.trim())) {
+			toast.error('Please enter a valid URL');
+			return;
+		}
+
+		const url = urlInput.trim();
+		
+		// Warn about common placeholder URLs
+		if (url.includes('example.com') || url.includes('placeholder') || url.includes('dummy')) {
+			toast.error('Please use a real, publicly accessible URL. Example URLs like "example.com" won\'t work.');
+			return;
+		}
+		
+		const detectedType = detectFileTypeFromUrl(url);
+		const finalType = detectedType || urlFileType;
+
+		// Audio is not supported via URL according to OpenRouter docs
+		// This check is here for future-proofing in case we add audio URL detection
+
+		const attachment: Attachment = {
+			id: crypto.randomUUID(),
+			type: finalType,
+			name: getFileNameFromUrl(url),
+			size: 0, // Unknown for URLs
+			data: url,
+			isUrl: true
+		};
+
+		attachments = [...attachments, attachment];
+		toast.success(`Added ${attachment.name} from URL. Note: The AI will attempt to fetch this file when processing your message.`);
+		
+		// Reset dialog
+		urlInput = '';
+		urlFileType = 'image';
+		showUrlDialog = false;
 	}
 
 	// Test API key validity
@@ -893,6 +1004,34 @@
 							try {
 								const parsed = JSON.parse(data);
 								
+								// Check for errors first
+								if (parsed.error) {
+									console.error('Stream error received:', parsed.error);
+									
+									// Provide more helpful error messages for common issues
+									let errorMessage = parsed.error.message;
+									if (errorMessage.includes('Invalid file URL') || errorMessage.includes('Failed to parse')) {
+										errorMessage = 'The file URL could not be accessed or processed. Please ensure the URL is publicly accessible and points to a valid file.';
+									}
+									
+									toast.error(`AI Error: ${errorMessage}`);
+									
+									// Update the assistant message with error
+									messages = messages.map((msg) =>
+										msg.id === assistantMessage.id
+											? { ...msg, content: `Error: ${errorMessage}` }
+											: msg
+									);
+									
+									// Handle chat_id if present
+									if (parsed.chat_id && !currentChatId) {
+										currentChatId = parsed.chat_id;
+										updateConversationsList(parsed.chat_id);
+									}
+									
+									return; // Exit early on error
+								}
+								
 								// Handle chat_id from response
 								if (parsed.chat_id && !currentChatId) {
 									currentChatId = parsed.chat_id;
@@ -900,7 +1039,7 @@
 									updateConversationsList(parsed.chat_id);
 								}
 
-								const content = parsed.choices[0]?.delta?.content || '';
+								const content = parsed.choices?.[0]?.delta?.content || '';
 
 								if (content) {
 									messages = messages.map((msg) =>
@@ -1610,9 +1749,20 @@
 										{#each message.attachments as attachment}
 											{@const IconComponent = getFileIcon(attachment.type)}
 											<div class="flex items-center space-x-2 bg-muted rounded-md p-2">
-												<IconComponent class="h-4 w-4 text-muted-foreground" />
+												<div class="flex items-center space-x-1">
+													<IconComponent class="h-4 w-4 text-muted-foreground" />
+													{#if attachment.isUrl}
+														<ExternalLink class="h-3 w-3 text-blue-500" />
+													{/if}
+												</div>
 												<span class="text-xs">{attachment.name}</span>
-												<span class="text-xs text-muted-foreground">({formatFileSize(attachment.size)})</span>
+												<span class="text-xs text-muted-foreground">
+													{#if attachment.isUrl}
+														(URL)
+													{:else}
+														({formatFileSize(attachment.size)})
+													{/if}
+												</span>
 											</div>
 										{/each}
 									</div>
@@ -1692,9 +1842,20 @@
 					{#each attachments as attachment}
 						{@const IconComponent = getFileIcon(attachment.type)}
 						<div class="flex items-center space-x-2 bg-muted rounded-md p-2">
-							<IconComponent class="h-4 w-4 text-muted-foreground" />
+							<div class="flex items-center space-x-1">
+								<IconComponent class="h-4 w-4 text-muted-foreground" />
+								{#if attachment.isUrl}
+									<ExternalLink class="h-3 w-3 text-blue-500" />
+								{/if}
+							</div>
 							<span class="text-sm">{attachment.name}</span>
-							<span class="text-xs text-muted-foreground">({formatFileSize(attachment.size)})</span>
+							<span class="text-xs text-muted-foreground">
+								{#if attachment.isUrl}
+									(URL)
+								{:else}
+									({formatFileSize(attachment.size)})
+								{/if}
+							</span>
 							<Button variant="ghost" size="sm" onclick={() => removeAttachment(attachment.id)}>
 								<X class="h-3 w-3" />
 							</Button>
@@ -1726,6 +1887,14 @@
 							disabled={isLoading}
 						>
 							<Upload class="h-4 w-4" />
+						</Button>
+						<Button
+							variant="outline"
+							size="sm"
+							onclick={() => showUrlDialog = true}
+							disabled={isLoading}
+						>
+							<Link class="h-4 w-4" />
 						</Button>
 						<Button
 							onclick={sendMessage}
@@ -2080,6 +2249,66 @@
 				<span class="text-xs text-muted-foreground ml-2">Enable real-time message streaming</span>
 			</div>
 		</div>
+	</Dialog.Content>
+</Dialog.Root>
+
+<!-- URL Input Dialog -->
+<Dialog.Root bind:open={showUrlDialog}>
+	<Dialog.Content class="sm:max-w-md">
+		<Dialog.Header>
+			<Dialog.Title>Add File from URL</Dialog.Title>
+			<Dialog.Description>
+				Enter a publicly accessible URL for an image or PDF file. The file must be available online for the AI to process it. Audio files are not supported via URL.
+			</Dialog.Description>
+		</Dialog.Header>
+		
+		<div class="space-y-4">
+			<div>
+				<Label for="url-input">URL</Label>
+				<Input
+					id="url-input"
+					bind:value={urlInput}
+					placeholder="https://picsum.photos/200/300.jpg"
+					onkeydown={(e) => e.key === 'Enter' && handleUrlSubmit()}
+				/>
+				<p class="text-xs text-muted-foreground mt-1">
+					Examples: https://picsum.photos/200/300.jpg or any publicly accessible PDF/image URL
+				</p>
+			</div>
+			
+			<div>
+				<Label>File Type</Label>
+				<div class="flex space-x-4 mt-2">
+					<label class="flex items-center space-x-2">
+						<input 
+							type="radio" 
+							bind:group={urlFileType} 
+							value="image"
+							class="w-4 h-4"
+						/>
+						<span>Image</span>
+					</label>
+					<label class="flex items-center space-x-2">
+						<input 
+							type="radio" 
+							bind:group={urlFileType} 
+							value="pdf"
+							class="w-4 h-4"
+						/>
+						<span>PDF</span>
+					</label>
+				</div>
+			</div>
+		</div>
+		
+		<Dialog.Footer class="flex justify-end space-x-2">
+			<Button variant="outline" onclick={() => showUrlDialog = false}>
+				Cancel
+			</Button>
+			<Button onclick={handleUrlSubmit} disabled={!urlInput.trim()}>
+				Add URL
+			</Button>
+		</Dialog.Footer>
 	</Dialog.Content>
 </Dialog.Root>
 
